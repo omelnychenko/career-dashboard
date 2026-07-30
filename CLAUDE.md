@@ -8,13 +8,11 @@ src/      → everything that runs locally and is never published.
 data.json → generated, gitignored, deployed separately as its own feed.
 ```
 
-The split is by *published or not* — not by language or by code-vs-script. A new
-file goes in `app/` only if the world is meant to fetch it.
-
-The split is the privacy mechanism: Cloudflare's build output directory is set
-to `app`, so only what is inside it can reach the public URL. `.gitignore` does
-not control this — it governs the repo, not the deploy. Never widen the output
-directory to the repo root.
+A file goes in `app/` only if the world is meant to fetch it — the split is by
+published-or-not, not by language. Cloudflare's build output directory is set to
+`app` in the project's console settings; that, not `.gitignore`, is what keeps
+`src/` private, so verify it there if anything under `src/` ever appears on the
+public URL.
 
 ## Data flow
 
@@ -37,19 +35,32 @@ cached view and says so. There is also a manual file picker as a fallback.
 - Dashboard: `https://career-dashboard-4fy.pages.dev` (git-deployed, output directory `app`)
 - Owner's feed: `https://career-data-2ucgrsgthbpa.pages.dev/data.json`
 
-The `-4fy` suffix exists because `career-dashboard.pages.dev` was already taken
-globally; `*.pages.dev` names are not per-account.
-
 ## Deploying
 
 - **Dashboard code** — `git push`; Cloudflare Pages builds from the repo
   (no build command, output directory `app`).
 - **Data feed** — `./src/deploy-data.sh`, with `CAREER_DATA_PROJECT` set to the
-  Pages project name. Ships only `data.json`, from a temp directory.
-- `job-record` runs generate + deploy-data after every vault write.
+  Pages project name. Ships only `data.json` from a temp directory, then deletes
+  the superseded deployments.
+- `job-record` runs generate + deploy-data after every vault write. Locally, the
+  `career-dashboard` zsh function does the same and opens the hosted page;
+  `career-dashboard-local` serves the repo on :8777 without deploying.
 
 Each person publishes their own feed and opens the shared dashboard with their
 own `?data=` URL, so no one needs access to anyone else's data.
+
+## First-time setup, per person
+
+```bash
+npx wrangler login                                   # once, per machine
+export CAREER_DATA_PROJECT=career-data-<random>      # add to ~/.zshrc
+./src/deploy-data.sh                                 # creates the project, publishes
+```
+
+The project name becomes the hostname and is the only thing protecting the feed,
+so make it random rather than guessable. Then open the dashboard once as
+`<dashboard-url>/?data=<feed-url>`: the feed is pinned per device and the bare
+URL works afterwards. **Clear data** unpins it.
 
 ## Privacy
 

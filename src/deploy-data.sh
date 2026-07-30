@@ -48,19 +48,31 @@ npx --yes wrangler pages deploy "$STAGE" \
 # from the vault, so there is nothing here worth rolling back to.
 echo
 echo "Pruning superseded deployments..."
-KEEP="$(npx --yes wrangler pages deployment list --project-name "$PROJECT" 2>/dev/null \
-  | grep -oE '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}' | head -1)"
 
-npx --yes wrangler pages deployment list --project-name "$PROJECT" 2>/dev/null \
-  | grep -oE '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}' \
-  | grep -v "^${KEEP}$" \
-  | while read -r id; do
-      # A deployment still serving traffic refuses deletion without --force; it
-      # is deliberately not forced here, so the live feed can never be removed.
-      npx --yes wrangler pages deployment delete "$id" --project-name "$PROJECT" >/dev/null 2>&1 \
-        && echo "  removed $id" || echo "  kept    $id (in use)"
-    done
+UUID='[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}'
+IDS="$(npx --yes wrangler pages deployment list --project-name "$PROJECT" | grep -oE "$UUID" || true)"
+KEEP="$(printf '%s\n' "$IDS" | head -1)"
+
+# Newest first is how wrangler lists them; without a parseable id there is no way
+# to tell the live deployment from the rest, and deleting blind would take the
+# feed down. Refuse instead.
+if ! printf '%s' "$KEEP" | grep -qE "^${UUID}$"; then
+  echo "Could not identify the live deployment — skipping prune." >&2
+  echo "Old snapshots stay public; re-run once 'wrangler pages deployment list' works." >&2
+  exit 1
+fi
+
+for id in $(printf '%s\n' "$IDS" | grep -v "^${KEEP}$" || true); do
+  if err="$(npx --yes wrangler pages deployment delete "$id" --project-name "$PROJECT" 2>&1)"; then
+    echo "  removed $id"
+  else
+    # No --force: wrangler refuses to delete an aliased deployment, which is the
+    # backstop if KEEP ever names the wrong one. Anything else is a real failure
+    # and leaves a public snapshot behind, so surface it rather than assuming.
+    echo "  KEPT    $id — $(printf '%s' "$err" | tail -1)" >&2
+  fi
+done
 
 echo
 echo "Feed:      https://${PROJECT}.pages.dev/data.json"
-echo "Dashboard: <dashboard-url>/?data=https://${PROJECT}.pages.dev/data.json"
+echo "Dashboard: https://career-dashboard-4fy.pages.dev/?data=https://${PROJECT}.pages.dev/data.json"

@@ -71,12 +71,17 @@ def normalize_salary(amount, period, currency) -> tuple:
     try:
         amt = float(str(amount).strip())
     except (ValueError, TypeError):
+        print(f"  warn: unparseable salary_amount {amount!r} — salary dropped")
         return ("", "")
 
     period = (period or "").strip().lower()
     currency = (currency or "").strip().upper()
 
-    # Convert to EUR/month
+    # Without a rate the amount would be labelled € unconverted, turning e.g.
+    # 5000 PLN into "€5K/mo" with the real currency nowhere in the payload.
+    if currency and currency not in ("EUR", "USD", "GBP"):
+        raise SystemExit(f"No conversion rate for {currency} — add one to generate.py.")
+
     eur_month = amt
     if currency == "USD":
         eur_month *= USD_TO_EUR
@@ -87,7 +92,6 @@ def normalize_salary(amount, period, currency) -> tuple:
     elif period == "year":
         eur_month /= 12
 
-    # Format primary
     if eur_month >= 1000:
         k = eur_month / 1000
         # Drop trailing .0: 5.0 -> "5", 4.8 -> "4.8"
@@ -96,7 +100,6 @@ def normalize_salary(amount, period, currency) -> tuple:
     else:
         primary = f"€{eur_month:g}/mo"
 
-    # Format original — allowed currencies: EUR | USD | GBP
     cur_sym = {"EUR": "€", "USD": "$", "GBP": "£"}.get(currency, "€")
     period_sfx = {"month": "/mo", "hour": "/h", "year": "/yr"}.get(period, "")
     if amt >= 1000:
@@ -105,7 +108,6 @@ def normalize_salary(amount, period, currency) -> tuple:
         amt_str = f"{amt:g}"
     original = f"{cur_sym}{amt_str}{period_sfx}"
 
-    # If primary == original (EUR + month), suppress duplicate
     if original == primary:
         original = ""
 
@@ -348,11 +350,12 @@ def reached_phase_index(stages: list[dict]) -> int:
     return best
 
 
-def load_applications() -> list[dict]:
-    apps = []
+def load_applications() -> tuple[list[dict], list[str]]:
+    apps, skipped = [], []
     for app_md in sorted(COMPANIES.glob("*/*/_application.md")):
-        fm, body = split_frontmatter(app_md.read_text(encoding="utf-8"))
-        if fm.get("type") != "application":
+        fm, body = split_frontmatter(app_md.read_text(encoding="utf-8-sig"))
+        if str(fm.get("type", "")).strip().lower() != "application":
+            skipped.append(f"{app_md.parent.parent.name}/{app_md.parent.name}: type={fm.get('type')!r}")
             continue
         app_dir = app_md.parent
         stages = load_stages(app_dir)
@@ -381,18 +384,23 @@ def load_applications() -> list[dict]:
             "location": norm["location"],
             "closed_date": str(norm["closed_date"]),
             "stages": stages,
-            "match_points_html": md_to_html(extract_section(body, "Match points")),
-            "decision_log_html": md_to_html(extract_section(body, "Decision log")),
             "body_html": md_to_html(body),
         })
     apps.sort(key=lambda a: a["applied_date"], reverse=True)
-    return apps
+    return apps, skipped
 
 
 # --- Main ------------------------------------------------------------------
 
 def main() -> None:
-    apps = load_applications()
+    # A missing vault makes glob return nothing rather than raising, so without
+    # these two guards a moved folder overwrites data.json with an empty payload
+    # and the deploy ships it — the dashboard goes blank with exit code 0.
+    if not COMPANIES.is_dir():
+        raise SystemExit(f"Vault not found: {COMPANIES}")
+    apps, skipped = load_applications()
+    if not apps:
+        raise SystemExit("Refusing to write an empty data.json — 0 applications found.")
     payload = {
         "schema": 1,
         "phases": PHASES,
@@ -406,6 +414,8 @@ def main() -> None:
         encoding="utf-8",
     )
     print(f"Wrote {DATA_JSON} ({len(apps)} applications)")
+    for s in skipped:
+        print(f"  skipped: {s}")
 
 
 if __name__ == "__main__":
