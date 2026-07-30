@@ -1,0 +1,953 @@
+<!DOCTYPE html>
+<!--
+  Career dashboard — data-less template.
+  Load data.json via the "Load / update data" button.
+  Source of truth: YAML frontmatter in the Obsidian Career vault.
+  Regenerate data.json with: python3 generate.py  (in this folder)
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Career dashboard</title>
+<style>
+  :root {
+    --bg: #0f1115; --panel: #171a21; --row: #1c2029; --row-hover: #232834;
+    --text: #e6e8ec; --muted: #8a92a3; --border: #2a2f3a;
+    --green: #2ea043; --red: #d9434e; --gray: #5b6472; --amber: #d9a441; --blue: #3b82f6;
+    --bar-area-h: 88px;  /* histogram plotting-area height; JS reads this for bar/goal px math */
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 13px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    /* Fixed app shell: the page itself never scrolls — only the inner panes do.
+       Height is tied to the viewport directly (100dvh, vh fallback) so it never
+       depends on an ancestor's resolved height. */
+    height: 100vh; height: 100dvh; overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  header {
+    padding: 14px 20px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 16px; flex: 0 0 auto;
+  }
+  header h1 { font-size: 18px; margin: 0; font-weight: 600; }
+
+  /* ---- App layout: screen split in two columns ---- */
+  .layout {
+    flex: 1 1 auto; min-height: 0;
+    display: grid; grid-template-columns: 1fr 1fr; gap: 1px;
+    background: var(--border);  /* shows through the 1px gap as a divider */
+  }
+  .col-left, .col-right { background: var(--bg); min-width: 0; min-height: 0; }
+  /* Left: filters/search pinned on top, the row list scrolls below. */
+  .col-left { display: flex; flex-direction: column; }
+  /* Right: a single block. Charts by default; the detail view swaps in over it.
+     Both children fill the column and scroll internally. */
+  .col-right { position: relative; }
+  .pane-charts, .pane-detail {
+    position: absolute; inset: 0; background: var(--bg);
+    min-height: 0; overflow-y: auto;
+  }
+  .pane-detail[hidden] { display: none; }
+  /* Controls row: filters left, search right — pinned on top of the left column */
+  .controls {
+    display: flex; align-items: center; gap: 12px;
+    padding: 14px 20px 10px; flex-wrap: wrap; flex: 0 0 auto;
+    border-bottom: 1px solid var(--border);
+  }
+  .controls .search-wrap { margin-left: auto; }
+  /* Action group pinned to the right edge of the header */
+  header .header-actions {
+    margin-left: auto; display: flex; align-items: center; gap: 10px;
+  }
+  .search-wrap { position: relative; display: inline-flex; align-items: center; }
+  .search-wrap input {
+    background: var(--panel); border: 1px solid var(--border); color: var(--text);
+    border-radius: 8px; padding: 7px 12px; min-width: 220px; padding-right: 30px;
+  }
+  .search-clear {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    background: none; border: none; color: var(--muted); cursor: pointer;
+    font-size: 16px; line-height: 1; padding: 2px 4px; border-radius: 4px;
+    display: none; transition: color .12s, background .12s;
+  }
+  .search-clear:hover { color: var(--text); background: var(--row-hover); }
+  .search-wrap.has-value .search-clear { display: block; }
+
+  /* Filters — compact clickable pills (one line: label + count) */
+  .metrics {
+    display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+  }
+  .metric {
+    display: inline-flex; align-items: center; gap: 8px;
+    background: var(--panel); border: 1px solid var(--border); border-radius: 999px;
+    padding: 6px 14px; cursor: pointer; user-select: none;
+    transition: border-color .12s, background .12s, opacity .12s;
+  }
+  .metric:hover { border-color: var(--gray); }
+  .metric.active { border-color: var(--blue); background: #15203a; }
+  .metric.zero { opacity: .45; }
+  .metric.zero.active { opacity: 1; }
+  .metric .lbl { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .metric.active .lbl { color: #cfe0ff; }
+  .metric .num { font-size: 14px; font-weight: 700; line-height: 1; }
+  .metric.m-all .num { color: var(--text); }
+  .metric.m-applied .num { color: #9aa4b5; }
+  .metric.m-active .num { color: #4ade80; }
+  .metric.m-upcoming .num { color: #93c5fd; }
+  .metric.m-update .num { color: #c4b5fd; }
+  .metric.m-ghosted .num { color: var(--amber); }
+  .metric.m-offers .num { color: #60a5fa; }
+  .metric.m-rejected .num { color: #f87171; }
+
+  /* Charts pane: histogram stacked above the funnel. The right column is only
+     half the screen wide — side-by-side clips the 5-stage funnel, so they stack. */
+  .toprow {
+    display: flex; flex-direction: column; gap: 22px;
+    padding: 18px 20px;
+  }
+  .toprow > .panel-daily { min-width: 0; display: flex; flex-direction: column; }
+  .toprow > .panel-funnel { min-width: 0; display: flex; flex-direction: column; }
+  .panel-funnel > #funnelStepped { flex: 1 1 auto; display: flex; flex-direction: column; }
+  /* Histogram chart and its bars grow to fill the panel height, which is
+     stretched to match the funnel — both blocks end up the same height. */
+  .panel-daily > #dailyChart { flex: 1 1 auto; display: flex; flex-direction: column; }
+
+  .panel-cap { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 8px; }
+
+  /* Daily-applied histogram */
+  .daily-head { display: flex; align-items: baseline; gap: 0; margin-bottom: 10px; flex-wrap: wrap; }
+  .daily-head .big { font-size: 13px; font-weight: 500; color: var(--text); line-height: 1; }
+  .daily-head .big .unit { font-size: 12px; font-weight: 500; color: var(--muted); margin-left: 4px; }
+  .daily-head .sub { font-size: 12px; color: var(--muted); }
+  .daily-head .sub b { color: var(--text); font-weight: 600; }
+  .bars { display: flex; align-items: flex-end; gap: 4px; position: relative; }
+  /* Dashed goal line overlaid on the histogram, on the same px axis as the bars
+     (bottom offset = target/peak * AREA_H, matching the JS). */
+  .goal-line { position: absolute; left: 0; right: 0; height: 0; border-top: 1px dashed var(--green); pointer-events: none; z-index: 2; }
+  .goal-lbl { position: absolute; left: 0; top: -7px; font-size: 9px; line-height: 1; color: #11161f; background: var(--green); padding: 1px 4px 2px; border-radius: 4px; }
+  .bar-col { flex: 1 1 0; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+  /* Fixed-height plotting area so bar px heights stay proportional (JS reads --bar-area-h). */
+  .bar-area { width: 100%; height: var(--bar-area-h); display: flex; align-items: flex-end; position: relative; }
+  .bar { width: 100%; border-radius: 4px 4px 0 0; background: #2a2f3a; transition: height .25s; }
+  .bar.zero { background: #262c38; }
+  .bar-col.is-today .bar { background: var(--green); }
+  .bar-col.is-weekend .bar { opacity: .6; }
+  /* Count sits absolutely over the bar area — top-centered, out of layout flow
+     so it never adds height. May overlap or be covered by the bar; that's fine. */
+  .bar-n { position: absolute; bottom: 2px; left: 0; right: 0; text-align: center; font-size: 11px; font-weight: 500; color: var(--text); line-height: 1; pointer-events: none; z-index: 1; }
+  .bar-n.is-zero { color: var(--muted); font-weight: 400; }
+  .bar-x { display: flex; gap: 4px; margin-top: 6px; }
+  .bx { flex: 1 1 0; text-align: center; font-size: 10px; color: var(--muted); line-height: 1.2; }
+  .bx.is-today { color: var(--green); font-weight: 600; }
+  .bx .wd { display: block; }
+  .bx .dm { display: block; font-size: 9px; opacity: .7; }
+
+  /* Funnel — five stage cards in a row. Each card carries its count and the
+     conversion from the previous stage, shown as a horizontal progress bar at
+     the bottom of the card: fill width = conv%, color encodes transition
+     quality (green >40, amber 20–40, red <20). */
+  .steps { width: 100%; flex: 1 1 auto; display: flex; flex-direction: row; gap: 8px; align-items: stretch; }
+  .step-col {
+    position: relative; flex: 1 1 0; min-width: 0;
+    display: flex; flex-direction: column; gap: 4px;
+    padding: 12px 14px 14px;
+    background: var(--row); border: 1px solid var(--border); border-radius: 10px;
+  }
+  .step-col.is-empty { opacity: .5; }
+  .step-name { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+  .step-count { font-size: 24px; font-weight: 700; color: var(--text); line-height: 1.1; }
+  .step-meta { font-size: 11px; color: var(--muted); }
+
+  /* Horizontal conversion bar at the bottom: track + colored fill, width = conv%. */
+  .step-bar { display: block; margin-top: auto; width: 100%; height: 6px;
+    background: var(--border); border-radius: 3px; overflow: hidden; }
+  .step-bar-fill { display: block; height: 100%; border-radius: 3px; transition: width .25s; }
+
+  /* Quality colors for the bar fill. */
+  .step-bar-fill.q-green { background: var(--green); }
+  .step-bar-fill.q-amber { background: var(--amber); }
+  .step-bar-fill.q-red   { background: var(--red); }
+
+  /* Scrolling row list: this is the only thing that scrolls in the left column. */
+  #tableWrap { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 0 20px 20px; }
+  table { width: 100%; border-collapse: collapse; }
+  thead th {
+    text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--muted); padding: 8px 14px; border-bottom: 1px solid var(--border); white-space: nowrap;
+    /* Stick the header to the top of the scrolling list. */
+    position: sticky; top: 0; background: var(--bg); z-index: 3;
+  }
+  tbody tr { background: var(--row); border-bottom: 1px solid var(--border); cursor: pointer; }
+  tbody tr:hover { background: var(--row-hover); }
+  tbody tr.is-selected { background: #15203a; box-shadow: inset 3px 0 0 var(--blue); }
+  tbody tr.row-upcoming { box-shadow: inset 3px 0 0 var(--blue); }
+  tbody tr.row-ghosted { box-shadow: inset 3px 0 0 var(--amber); }
+  tbody td { padding: 6px 14px; vertical-align: middle; }
+  .company-role { line-height: 1.25; }
+  .cr-company { font-weight: 600; color: var(--text); }
+  .cr-role { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  /* Salary: single normalized €/mo figure; original lives in the modal. */
+  .sal-primary { color: var(--text); }
+  /* Last contact: days-since on top (amber when stale), exact date muted below. */
+  .lastcontact { line-height: 1.25; }
+  .lc-date { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  /* Pipeline on top, status badge below — both keep their own colors. */
+  .status-pipeline { white-space: nowrap; }
+  .muted { color: var(--muted); }
+  .badge { display: inline-block; padding: 2px 8px; border-radius: 6px; font-size: 11px; font-weight: 500; }
+  /* Stack: each technology (and the +N overflow) is an outlined badge. */
+  .stack-inner { display: inline-flex; flex-wrap: wrap; gap: 4px; vertical-align: middle; }
+  .tech { display: inline-block; padding: 1px 7px; border-radius: 6px; font-size: 11px; border: 1px solid var(--border); color: var(--text); white-space: nowrap; }
+  .tech-more { color: var(--muted); }
+  .st-applied  { background: #2a2f3a; color: #9aa4b5; }
+  .st-active   { background: #1b3a2b; color: #4ade80; }
+  .st-offer    { background: #1b2740; color: #60a5fa; }
+  .st-rejected { background: #3a1d20; color: #f87171; }
+  .st-withdrawn{ background: #2a2f3a; color: var(--muted); }
+  .tag-ghost { background: #3a2f1a; color: var(--amber); margin-left: 6px; }
+  .tag-up    { background: #15203a; color: #93c5fd; margin-left: 6px; }
+  .tag-update{ background: #2a2536; color: #c4b5fd; margin-left: 6px; }
+
+  /* Dual badge: one outline in the status color; left half filled (status),
+     right half outline-only (pipeline). --st-color is set inline per status. */
+  .dual { display: inline-flex; align-items: stretch; border: 1px solid var(--st-bg); border-radius: 6px; overflow: hidden; font-size: 11px; vertical-align: middle; }
+  .dual .d-status { display: inline-flex; align-items: center; padding: 2px 8px; font-weight: 500; background: var(--st-bg); color: var(--st-color); }
+  .dual .d-pipe { display: inline-flex; align-items: center; gap: 4px; flex-wrap: wrap; padding: 2px 8px; color: var(--text); }
+  .dual .d-pipe .empty { color: var(--muted); font-style: italic; }
+  /* Pipeline stages: plain text + colored dot, joined by arrows (no per-stage box). */
+  .stage { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+  .stage .dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+  .dot.passed { background: var(--green); }
+  .dot.failed { background: var(--red); }
+  .dot.pending { background: var(--gray); }
+  .dot.upcoming { background: var(--blue); box-shadow: 0 0 0 0 rgba(59,130,246,.7); animation: pulse 1.6s infinite; }
+  .stage.is-upcoming { color: #93c5fd; }
+  @keyframes pulse {
+    0% { box-shadow: 0 0 0 0 rgba(59,130,246,.6); }
+    70% { box-shadow: 0 0 0 6px rgba(59,130,246,0); }
+    100% { box-shadow: 0 0 0 0 rgba(59,130,246,0); }
+  }
+  .arrow { color: var(--muted); }
+  .empty { color: var(--muted); font-style: italic; }
+
+  /* Detail view — fills the whole right column over the charts.
+     Lives inside .pane-detail; the pane handles scrolling. */
+  .modal {
+    background: var(--bg); display: flex; flex-direction: column; min-height: 100%;
+  }
+  .modal-head {
+    padding: 16px 20px; border-bottom: 1px solid var(--border);
+    display: flex; justify-content: space-between; align-items: flex-start; gap: 16px;
+    background: var(--bg); flex: 0 0 auto;
+    position: sticky; top: 0; z-index: 3;
+  }
+  /* Back control above the title, returns the right column to the charts. */
+  .back-btn {
+    background: none; border: 1px solid var(--border); color: var(--muted);
+    cursor: pointer; border-radius: 6px; padding: 3px 10px; font-size: 12px;
+    margin-bottom: 10px; transition: color .12s, border-color .12s, background .12s;
+  }
+  .back-btn:hover { color: var(--text); border-color: var(--gray); background: var(--row-hover); }
+  .modal-head h2 { margin: 0 0 4px; font-size: 16px; }
+  .modal-head .sub { color: var(--muted); }
+  .close { background: none; border: none; color: var(--muted); font-size: 24px; cursor: pointer; line-height: 1; }
+  .close:hover { color: var(--text); }
+  .modal-body { padding: 16px 20px 24px; }
+  .kv { display: grid; grid-template-columns: 130px 1fr; gap: 6px 14px; margin-bottom: 20px; }
+  .kv dt { color: var(--muted); }
+  .kv dd { margin: 0; }
+  .modal-body .md { margin: 6px 0 0; padding-left: 20px; }
+  .modal-body h3, .modal-body h4, .modal-body h5 { margin: 14px 0 4px; }
+  .modal-body p { margin: 6px 0; }
+  .modal-body code { background: #21262f; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+
+  /* Tab bar */
+  .tab-bar {
+    display: flex; gap: 0; flex-wrap: wrap;
+    border-bottom: 1px solid var(--border);
+    padding: 0 20px; background: var(--bg); flex: 0 0 auto;
+  }
+  .tab-btn {
+    background: none; border: none; border-bottom: 2px solid transparent;
+    color: var(--muted); font-size: 13px; padding: 10px 14px; cursor: pointer;
+    margin-bottom: -1px; white-space: nowrap; display: inline-flex; align-items: center; gap: 6px;
+    transition: color .12s, border-color .12s;
+  }
+  .tab-btn:hover { color: var(--text); }
+  .tab-btn.active { color: var(--text); border-bottom-color: var(--blue); }
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+  /* Rendered markdown body */
+  /* Links in the modal — bright blue, readable on the dark background. */
+  .modal a { color: var(--blue); text-decoration: none; }
+  .modal a:hover { text-decoration: underline; }
+  /* Divider between the Application service block (.kv) and the file body. */
+  .modal .kv + .md-body { border-top: 1px solid var(--border); margin-top: 16px; padding-top: 16px; }
+  .modal .md-body h3, .modal .md-body h4, .modal .md-body h5, .modal .md-body h6 { margin: 16px 0 6px; font-size: 13px; }
+  .modal .md-body p { margin: 6px 0; }
+  .modal .md-body ul.md { margin: 6px 0; padding-left: 20px; }
+  .modal .md-body code { background: #21262f; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+
+  /* Header buttons: shared outline style for load / clear / incognito */
+  .btn {
+    background: none; border: 1px solid var(--border); color: var(--muted);
+    cursor: pointer; border-radius: 6px; transition: color .12s, border-color .12s, background .12s;
+  }
+  .btn:hover { color: var(--text); border-color: var(--gray); background: var(--row-hover); }
+  .btn-data { padding: 5px 12px; font-size: 12px; }
+  .btn-icon { padding: 4px 8px; display: flex; align-items: center; }
+  .btn-icon.is-on { color: var(--blue); border-color: var(--blue); }
+  .data-error { color: var(--red); font-size: 12px; }
+
+  /* Empty state */
+  .empty-state {
+    padding: 48px 28px; text-align: center; color: var(--muted);
+  }
+  .empty-state p { margin: 8px 0; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Dashboard</h1>
+  <input type="file" id="fileInput" accept="application/json" style="display:none">
+  <div class="header-actions">
+    <span id="dataError" class="data-error"></span>
+    <button class="btn btn-data" id="loadBtn">Load / update data</button>
+    <button class="btn btn-data" id="clearBtn">Clear data</button>
+    <button class="btn btn-icon" id="incognitoBtn" title="Hide salaries">
+      <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="6" cy="11" r="3"/>
+        <circle cx="14" cy="11" r="3"/>
+        <path d="M3 11 C3 8 5 7 6 7"/>
+        <path d="M9 9 C9 8.5 9.5 8 10 8 C10.5 8 11 8.5 11 9"/>
+        <path d="M17 11 C17 8 15 7 14 7"/>
+      </svg>
+    </button>
+  </div>
+</header>
+
+<div class="layout">
+  <!-- Left column: filters + search pinned on top, scrolling table below -->
+  <div class="col-left">
+    <div class="controls">
+      <div class="metrics" id="metrics"></div>
+      <span class="search-wrap" id="searchWrap">
+        <input id="search" type="text" placeholder="Search company, role, stack…">
+        <button class="search-clear" id="searchClear" type="button" title="Clear search" aria-label="Clear search">×</button>
+      </span>
+    </div>
+    <div id="tableWrap"></div>
+  </div>
+
+  <!-- Right column: a single block. Shows charts; clicking a row swaps the whole
+       block to the selected-application detail (with a Back control). -->
+  <div class="col-right">
+    <div class="pane-charts" id="charts">
+      <div class="toprow">
+        <div class="panel-funnel">
+          <div class="panel-cap">Pipeline funnel</div>
+          <div id="funnelStepped"></div>
+        </div>
+        <div class="panel-daily">
+          <div id="dailyChart"></div>
+        </div>
+      </div>
+    </div>
+    <div class="pane-detail" id="detail" hidden></div>
+  </div>
+</div>
+
+<script>
+let PAYLOAD, DATA, PHASES, TODAY;
+
+// ---- Date utilities -------------------------------------------------------
+
+function todayISO() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+// Returns isoB - isoA in days (positive when B is later than A).
+// Parses each string by splitting — never uses new Date(str) to avoid UTC drift.
+function daysBetween(isoA, isoB) {
+  const [ay, am, ad] = isoA.split("-").map(Number);
+  const [by, bm, bd] = isoB.split("-").map(Number);
+  const a = Date.UTC(ay, am - 1, ad);
+  const b = Date.UTC(by, bm - 1, bd);
+  return Math.round((b - a) / 86400000);
+}
+
+// ---- Derive layer (ported from Python 1:1) --------------------------------
+
+function hasUpcoming(stages, today) {
+  return stages.some(s => (s.result || "").toLowerCase().startsWith("sched") || (s.date && s.date > today));
+}
+
+function lastContact(stages, applied_date) {
+  const dates = stages.map(s => s.date).filter(Boolean);
+  return dates.length ? dates.reduce((a, b) => a > b ? a : b) : (applied_date || null);
+}
+
+function daysSince(lastISO, today) {
+  return lastISO ? daysBetween(lastISO, today) : null;
+}
+
+function isGhosted(status, stages, applied_date, today, ghostDays) {
+  if (status !== "active") return false;
+  if (hasUpcoming(stages, today)) return false;
+  const last = lastContact(stages, applied_date);
+  if (!last) return false;
+  return daysBetween(last, today) > ghostDays;
+}
+
+function needsUpdate(stages, today) {
+  return stages.some(s => !s.result && s.date && s.date <= today);
+}
+
+function deriveApp(raw, today, ghostDays) {
+  const upcoming = hasUpcoming(raw.stages, today);
+  const ghosted = isGhosted(raw.status, raw.stages, raw.applied_date, today, ghostDays);
+  const needs_update = needsUpdate(raw.stages, today);
+  const last_contact = lastContact(raw.stages, raw.applied_date);
+  const days_since_contact = daysSince(last_contact, today);
+  return { ...raw, upcoming, ghosted, needs_update, last_contact, days_since_contact };
+}
+
+function computeMetrics(apps) {
+  return {
+    all: apps.length,
+    applied: apps.filter(a => a.applied && !a.ghosted).length,
+    active: apps.filter(a => a.status === "active").length,
+    upcoming: apps.filter(a => a.upcoming).length,
+    needs_update: apps.filter(a => a.needs_update && !a.ghosted).length,
+    offers: apps.filter(a => a.status === "offer").length,
+    rejected: apps.filter(a => a.status === "rejected").length,
+    ghosted: apps.filter(a => a.ghosted).length,
+  };
+}
+
+function computeFunnel(apps, phases) {
+  const n = apps.length;
+  const counts = phases.map((phase, i) => {
+    if (phase === "Applied") return n;
+    if (phase === "Offer") return apps.filter(a => a.status === "offer").length;
+    return apps.filter(a => a.reached >= i).length;
+  });
+  return phases.map((phase, i) => {
+    const prev = i === 0 ? counts[0] : counts[i - 1];
+    const conv = prev ? Math.round(100 * counts[i] / prev) : 0;
+    const of_total = n ? Math.round(100 * counts[i] / n) : 0;
+    return { phase, count: counts[i], conv, of_total };
+  });
+}
+
+function computeDaily(apps, today, window, target) {
+  const counts = {};
+  for (const a of apps) {
+    const d = (a.applied_date || "").slice(0, 10);
+    if (d) counts[d] = (counts[d] || 0) + 1;
+  }
+
+  const [ty, tm, td] = today.split("-").map(Number);
+  const todayUTC = Date.UTC(ty, tm - 1, td);
+
+  const days = [];
+  for (let i = window - 1; i >= 0; i--) {
+    const dayUTC = todayUTC - i * 86400000;
+    const dt = new Date(dayUTC);
+    // Build YYYY-MM-DD from UTC parts (we computed via UTC so these are exact)
+    const y = dt.getUTCFullYear();
+    const mo = String(dt.getUTCMonth() + 1).padStart(2, "0");
+    const da = String(dt.getUTCDate()).padStart(2, "0");
+    const iso = `${y}-${mo}-${da}`;
+    // weekday: use toLocaleDateString for "Mon".."Sun"
+    const weekday = dt.toLocaleDateString("en-US", { weekday: "short" });
+    const dom = dt.getUTCDate();
+    days.push({ date: iso, count: counts[iso] || 0, weekday, dom });
+  }
+
+  const total = days.reduce((s, d) => s + d.count, 0);
+  const boundary7 = new Date(todayUTC - 7 * 86400000);
+  const b7y = boundary7.getUTCFullYear();
+  const b7m = String(boundary7.getUTCMonth() + 1).padStart(2, "0");
+  const b7d = String(boundary7.getUTCDate()).padStart(2, "0");
+  const iso7 = `${b7y}-${b7m}-${b7d}`;
+  const last7 = days.filter(d => d.date > iso7).reduce((s, d) => s + d.count, 0);
+  const avg = window ? Math.round(total / window * 10) / 10 : 0;
+  const max = days.reduce((m, d) => Math.max(m, d.count), 0);
+
+  return { days, window, today: counts[today] || 0, last7, avg, max, target };
+}
+
+function derive(raw, today) {
+  const apps = raw.apps.map(a => deriveApp(a, today, raw.ghost_days));
+  const metrics = computeMetrics(apps);
+  const funnel = computeFunnel(apps, raw.phases);
+  const daily = computeDaily(apps, today, raw.daily_window, raw.daily_target);
+  return { schema: raw.schema, phases: raw.phases, apps, metrics, funnel, daily, today };
+}
+
+// ---- Boot -----------------------------------------------------------------
+
+const LS_KEY = "careerDashboardData";
+const LS_SRC = "careerDashboardSource";
+
+function validate(raw) {
+  return raw && Array.isArray(raw.apps) && Array.isArray(raw.phases);
+}
+
+// Remote source: ?data=<url> pins this device to a JSON feed and is remembered
+// afterwards, so the bare dashboard URL keeps working on repeat visits.
+// Only https is accepted — an http feed would be silently blocked as mixed
+// content when the dashboard itself is served over https.
+function readSourceParam() {
+  const q = new URLSearchParams(location.search).get("data");
+  if (!q) return localStorage.getItem(LS_SRC);
+  let url;
+  try { url = new URL(q, location.href); } catch (_) { return null; }
+  const localhost = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+  if (url.protocol !== "https:" && !localhost) return null;
+  localStorage.setItem(LS_SRC, url.href);
+  return url.href;
+}
+
+async function loadFromSource(src) {
+  const bust = src + (src.includes("?") ? "&" : "?") + "t=" + Date.now();
+  const res = await fetch(bust, { cache: "no-store" });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  const raw = await res.json();
+  if (!validate(raw)) throw new Error("unrecognised format");
+  localStorage.setItem(LS_KEY, JSON.stringify(raw));
+  return raw;
+}
+
+function boot(raw) {
+  TODAY = todayISO();
+  PAYLOAD = derive(raw, TODAY);
+  DATA = PAYLOAD.apps;
+  PHASES = PAYLOAD.phases;
+  renderMetrics(); renderDailyChart(); renderSteppedFunnel(); render();
+}
+
+function showEmptyState(msg) {
+  document.getElementById("tableWrap").innerHTML =
+    `<div class="empty-state"><p>${msg}</p><p>Click <strong>Load / update data</strong> to load data.json generated by <code>python3 generate.py</code>.</p></div>`;
+}
+
+const esc = s => (s ?? "").toString()
+  .replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+
+let incognito = localStorage.getItem('incognito') === '1';
+let openApp = null;
+
+function statusBadge(s) { return `<span class="badge st-${esc(s)}">${esc(s)}</span>`; }
+
+// Table salary: strip "K" and "/mo" to a bare €-figure. "€4.5K/mo" → "€4500",
+// "€1K/mo" → "€1000", "€10.7K/mo" → "€10700". Falls back to the raw string if
+// it doesn't match the expected shape.
+function salaryShort(s) {
+  if (!s) return "";
+  const m = s.match(/€\s*([\d.]+)\s*K/i);
+  if (!m) return s;
+  return "€" + Math.round(parseFloat(m[1]) * 1000).toLocaleString("en-US");
+}
+
+// Bright color + dark fill per status (mirrors the .st-* CSS), for the dual badge.
+const ST_COLORS = {
+  applied:   { color: "#9aa4b5", bg: "#2a2f3a" },
+  active:    { color: "#4ade80", bg: "#1b3a2b" },
+  offer:     { color: "#60a5fa", bg: "#1b2740" },
+  rejected:  { color: "#f87171", bg: "#3a1d20" },
+  withdrawn: { color: "#8a92a3", bg: "#2a2f3a" },
+};
+
+// One outlined badge in the status color: left = filled status, right = pipeline (outline only).
+function dualBadge(status, stages) {
+  const c = ST_COLORS[status] || ST_COLORS.applied;
+  const pipe = stages.length
+    ? stages.map((s, i) => {
+        const cls = stageClass(s);
+        const arrow = i ? `<span class="arrow">›</span>` : "";
+        const up = cls === "upcoming" ? " is-upcoming" : "";
+        const resTxt = cls === "upcoming" ? "upcoming " + s.date : (s.result || "pending");
+        return `${arrow}<span class="stage${up}" title="${esc(s.stage)} · ${esc(s.phase)} — ${esc(resTxt)}"><span class="dot ${cls}"></span>${esc(s.short)}</span>`;
+      }).join("")
+    : `<span class="empty">—</span>`;
+  return `<span class="dual" style="--st-color:${c.color};--st-bg:${c.bg}">`
+       + `<span class="d-status">${esc(status)}</span>`
+       + `<span class="d-pipe">${pipe}</span>`
+       + `</span>`;
+}
+
+function stageClass(s) {
+  const r = (s.result || "").toLowerCase();
+  if (r.startsWith("pass")) return "passed";
+  if (r.startsWith("fail")) return "failed";
+  if (r.startsWith("sched") || (s.date && s.date > TODAY)) return "upcoming";
+  return "pending";
+}
+
+// ---- Filter cards (the only filter UI; clicking a card filters the table) ----
+// Each card carries its own predicate + which metric count to show.
+const FILTERS = [
+  { key: "all",      label: "All",      cls: "m-all",      metric: "all",      test: () => true },
+  { key: "applied",  label: "Applied",  cls: "m-applied",  metric: "applied",  test: a => a.applied && !a.ghosted },
+  { key: "active",   label: "Active",   cls: "m-active",   metric: "active",   test: a => a.status === "active" },
+  { key: "offer",    label: "Offers",   cls: "m-offers",   metric: "offers",   test: a => a.status === "offer" },
+  { key: "rejected", label: "Rejected", cls: "m-rejected", metric: "rejected", test: a => a.status === "rejected" },
+];
+let activeFilter = "all";
+let searchQuery = "";
+
+// ---- Metric cards (double as filter controls) ----
+function renderMetrics() {
+  const m = PAYLOAD.metrics;
+  document.getElementById("metrics").innerHTML = FILTERS.map(f => {
+    const n = m[f.metric] ?? 0;
+    const zero = (n === 0 && f.key !== "all") ? " zero" : "";
+    return `<div class="metric ${f.cls}${zero} ${activeFilter === f.key ? "active" : ""}" data-filter="${f.key}">
+       <span class="lbl">${esc(f.label)}</span><span class="num">${n}</span></div>`;
+  }).join("");
+}
+
+// ---- Daily-applied histogram ----
+function renderDailyChart() {
+  const d = PAYLOAD.daily;
+
+  // Bars scale to the busiest day OR the goal, whichever is taller, so the goal
+  // line is always on-scale even on days nobody reached it (min 1 to avoid /0).
+  // Heights are absolute px against a fixed-height area (AREA_H) — NOT % of the
+  // flex parent, whose height is content-dependent and collapses 4 vs 3 to the
+  // same pixels. px on a fixed axis keeps counts proportional and lets the goal
+  // line land exactly where a bar of `target` height tops out.
+  // Single source of truth for the plotting-area height: the --bar-area-h CSS var.
+  const AREA_H = parseInt(getComputedStyle(document.documentElement)
+    .getPropertyValue("--bar-area-h"), 10) || 64;
+  const target = d.target || 0;
+  const peak = Math.max(d.max, target, 1);
+  const bars = d.days.map(day => {
+    const isToday = day.date === TODAY;
+    const wd = day.weekday;
+    const weekend = (wd === "Sat" || wd === "Sun");
+    const hPx = day.count > 0 ? Math.max(2, Math.round(day.count / peak * AREA_H)) : 0;
+    const colCls = (isToday ? " is-today" : "") + (weekend ? " is-weekend" : "");
+    return `<div class="bar-col${colCls}" title="${esc(day.date)} (${esc(wd)}): ${day.count} applied">
+        <div class="bar-area">
+          <div class="bar${day.count === 0 ? " zero" : ""}" style="height:${hPx}px"></div>
+          <span class="bar-n${day.count === 0 ? " is-zero" : ""}">${day.count || ""}</span>
+        </div>
+      </div>`;
+  }).join("");
+
+  // Dashed goal line on the same px axis: a bar of `target` count tops out here.
+  const goalPx = target > 0 ? Math.round(target / peak * AREA_H) : 0;
+  const goalLine = target > 0
+    ? `<div class="goal-line" style="bottom:${goalPx}px"><span class="goal-lbl">goal ${target}/day</span></div>`
+    : "";
+
+  const axis = d.days.map(day => {
+    const isToday = day.date === TODAY;
+    return `<div class="bx${isToday ? " is-today" : ""}">
+        <span class="wd">${esc(day.weekday)}</span><span class="dm">${day.dom}</span>
+      </div>`;
+  }).join("");
+
+  document.getElementById("dailyChart").innerHTML = `
+    <div class="daily-head">
+      <span class="big">${d.today}<span class="unit">today</span></span>
+      <span class="sub">&nbsp;· <b>${d.last7}</b> last 7d · avg <b>${d.avg}</b>/day</span>
+    </div>
+    <div class="bars">${goalLine}${bars}</div>
+    <div class="bar-x">${axis}</div>`;
+}
+
+// ---- Funnel — five stage cards, each with a conversion bar + badge ----
+// conv = % flowing in from the PREVIOUS stage. Color encodes transition
+// quality: green >40, amber 20–40 (inclusive), red <20. The first card
+// (Applied) has no inbound transition, so it shows the total with no quality color.
+function convQuality(conv) {
+  if (conv > 40) return "q-green";
+  if (conv >= 20) return "q-amber";
+  return "q-red";
+}
+
+function renderSteppedFunnel() {
+  const data = PAYLOAD.funnel;
+
+  const cols = data.map((f, i) => {
+    const emptyCls = f.count === 0 ? " is-empty" : "";
+
+    // First stage: no inbound transition — plain total, no bar/badge.
+    if (i === 0) {
+      return `<div class="step-col${emptyCls}">
+        <span class="step-name">${esc(f.phase)}</span>
+        <span class="step-count">${f.count}</span>
+        <span class="step-meta">total applied</span>
+      </div>`;
+    }
+
+    const q = convQuality(f.conv);
+    const drop = data[i - 1].count - f.count;
+    const dropHtml = drop > 0
+      ? `<span style="color:var(--red)">−${drop} dropped</span>`
+      : `no drop`;
+    const barW = Math.max(0, Math.min(100, f.conv));  // clamp to 0–100%
+
+    return `<div class="step-col${emptyCls}">
+      <span class="step-name">${esc(f.phase)}</span>
+      <span class="step-count">${f.count}</span>
+      <span class="step-meta">${f.conv}% conversion<br>${dropHtml}</span>
+      <span class="step-bar"><span class="step-bar-fill ${q}" style="width:${barW}%"></span></span>
+    </div>`;
+  }).join("");
+
+  document.getElementById("funnelStepped").innerHTML = `<div class="steps">${cols}</div>`;
+}
+
+// ---- Table ----
+function rowHtml(a) {
+  const tags = (a.upcoming ? `<span class="badge tag-up">upcoming</span>` : "")
+             + (a.ghosted ? `<span class="badge tag-ghost">ghosted</span>` : "")
+             + (a.needs_update && !a.ghosted ? `<span class="badge tag-update">needs update</span>` : "");
+  const rowCls = (a.upcoming ? " row-upcoming" : (a.ghosted ? " row-ghosted" : ""))
+               + (a === openApp ? " is-selected" : "");
+  return `
+    <tr data-i="${DATA.indexOf(a)}" class="${rowCls.trim()}">
+      <td class="company-role">
+        <div class="cr-company">${esc(a.company)}</div>
+        <div class="cr-role">${esc(a.role) || "—"}</div>
+      </td>
+      <td class="status-pipeline">${dualBadge(a.status, a.stages)}${tags}</td>
+      <td class="lastcontact">${a.last_contact ? `${a.days_since_contact != null ? `<div class="lc-days" style="color:${a.days_since_contact >= 14 ? 'var(--amber)' : 'var(--text)'}">${a.days_since_contact}д</div>` : ""}<div class="lc-date">${esc(a.last_contact)}</div>` : '<span class="muted">—</span>'}</td>
+      <td class="salary">${incognito ? '<span class="muted">—</span>' : (a.salary_primary ? `<div class="sal-primary">${esc(salaryShort(a.salary_primary))}</div>` : '<span class="muted">—</span>')}</td>
+    </tr>`;
+}
+
+function render() {
+  const q = searchQuery.toLowerCase().trim();
+  const f = FILTERS.find(x => x.key === activeFilter) || FILTERS[0];
+  const match = a => !q || [a.company, a.role, a.stack_main, (a.stack_all||[]).join(" "), a.location]
+    .join(" ").toLowerCase().includes(q);
+
+  let rows = DATA.filter(a => f.test(a) && match(a));
+  rows.sort((x, y) => {
+    if (x.upcoming !== y.upcoming) return x.upcoming ? -1 : 1;
+    return (y.applied_date || "").localeCompare(x.applied_date || "");
+  });
+
+  const body = rows.length
+    ? `<table>
+        <thead><tr>
+          <th>Company / Role</th><th>Pipeline / Status</th><th>Last contact</th><th>Salary asked</th>
+        </tr></thead>
+        <tbody>${rows.map(rowHtml).join("")}</tbody>
+      </table>`
+    : `<p class="empty" style="padding:20px 28px">No matches.</p>`;
+  document.getElementById("tableWrap").innerHTML = body;
+}
+
+function setFilter(key) {
+  if (!FILTERS.some(f => f.key === key)) return;
+  activeFilter = key;
+  renderMetrics(); render();
+}
+
+function openDetail(a) {
+  openApp = a;
+
+  // Highlight the selected row in the table.
+  const i = DATA.indexOf(a);
+  document.querySelectorAll("#tableWrap tbody tr").forEach(tr => {
+    tr.classList.toggle("is-selected", +tr.dataset.i === i);
+  });
+
+  // --- Tab buttons ---
+  const tabBtns = [`<button class="tab-btn active" data-tab="0">Application</button>`];
+  a.stages.forEach((s, i) => {
+    const cls = stageClass(s);
+    tabBtns.push(
+      `<button class="tab-btn" data-tab="${i + 1}"><span class="dot ${cls}"></span>${esc(s.short || s.stage)}</button>`
+    );
+  });
+
+  // --- Application panel (service block + full body) ---
+  const appPanel = `<div class="tab-panel active" data-panel="0">
+    <dl class="kv">
+      <dt>Stack</dt><dd>${esc((a.stack_all||[]).join(", ")) || "—"}</dd>
+      <dt>Salary asked</dt><dd>${incognito ? "—" : (a.salary_primary ? esc(a.salary_primary) + (a.salary_original ? ` · ${esc(a.salary_original)}` : "") : "—")}</dd>
+      ${!incognito && a.salary_note ? `<dt>Salary note</dt><dd>${esc(a.salary_note)}</dd>` : ""}
+      <dt>Source</dt><dd>${a.source ? (/^https?:\/\//.test(a.source) ? `<a href="${esc(a.source)}" target="_blank" rel="noopener">${esc(a.source)}</a>` : esc(a.source)) : "—"}</dd>
+      <dt>Applied</dt><dd>${esc(a.applied_date) || "—"}</dd>
+      <dt>Last contact</dt><dd>${a.last_contact ? `${esc(a.last_contact)}${a.days_since_contact != null ? ` · ${a.days_since_contact}д` : ""}` : "—"}</dd>
+      ${a.closed_date ? `<dt>Closed</dt><dd>${esc(a.closed_date)}</dd>` : ""}
+    </dl>
+    <div class="md-body">${a.body_html || "<p class=\"empty\">No content.</p>"}</div>
+  </div>`;
+
+  // --- Stage panels ---
+  const stagePanels = a.stages.map((s, i) =>
+    `<div class="tab-panel" data-panel="${i + 1}">
+      <div class="md-body">${s.body_html || "<p class=\"empty\">No content.</p>"}</div>
+    </div>`
+  ).join("");
+
+  const detail = document.getElementById("detail");
+  detail.innerHTML = `
+    <div class="modal">
+      <div class="modal-head">
+        <div class="modal-head-main">
+          <button class="back-btn" id="detailBack" title="Back to charts (Esc)">← Back</button>
+          <h2>${esc(a.company)} — ${esc(a.role)}</h2>
+          <div class="sub">${statusBadge(a.status)} ${a.seniority ? "· " + esc(a.seniority) : ""} ${a.location ? "· " + esc(a.location) : ""}</div>
+        </div>
+      </div>
+      <div class="tab-bar">${tabBtns.join("")}</div>
+      <div class="modal-body">
+        ${appPanel}
+        ${stagePanels}
+      </div>
+    </div>`;
+
+  // Tab switching logic
+  detail.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const idx = btn.dataset.tab;
+      detail.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+      detail.querySelectorAll(".tab-panel").forEach(p => p.classList.remove("active"));
+      btn.classList.add("active");
+      detail.querySelector(`.tab-panel[data-panel="${idx}"]`).classList.add("active");
+    });
+  });
+
+  detail.querySelector("#detailBack").addEventListener("click", clearDetail);
+
+  // Swap the right column over to the detail view, hiding the charts.
+  document.getElementById("charts").hidden = true;
+  detail.hidden = false;
+  detail.scrollTop = 0;
+}
+
+// #metrics is re-rendered wholesale, so delegate clicks from a stable parent.
+document.getElementById("metrics").addEventListener("click", e => {
+  const c = e.target.closest(".metric"); if (c) setFilter(c.dataset.filter);
+});
+document.getElementById("tableWrap").addEventListener("click", e => {
+  const tr = e.target.closest("tr"); if (!tr) return;
+  openDetail(DATA[+tr.dataset.i]);
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape") clearDetail(); });
+
+function clearDetail() {
+  openApp = null;
+  document.querySelectorAll("#tableWrap tbody tr.is-selected")
+    .forEach(tr => tr.classList.remove("is-selected"));
+  const detail = document.getElementById("detail");
+  detail.hidden = true;
+  detail.innerHTML = "";
+  document.getElementById("charts").hidden = false;
+}
+const searchInput = document.getElementById("search");
+const searchWrap = document.getElementById("searchWrap");
+const searchClear = document.getElementById("searchClear");
+function syncSearchClear() {
+  searchWrap.classList.toggle("has-value", searchInput.value.length > 0);
+}
+searchInput.addEventListener("input", e => {
+  searchQuery = e.target.value; syncSearchClear(); render();
+});
+searchClear.addEventListener("click", () => {
+  searchInput.value = ""; searchQuery = ""; syncSearchClear(); render(); searchInput.focus();
+});
+syncSearchClear();
+
+const incognitoBtn = document.getElementById("incognitoBtn");
+if (incognito) incognitoBtn.classList.add("is-on");
+incognitoBtn.addEventListener("click", () => {
+  incognito = !incognito;
+  localStorage.setItem('incognito', incognito ? '1' : '0');
+  incognitoBtn.classList.toggle("is-on", incognito);
+  render();
+  if (openApp) openDetail(openApp);
+});
+
+// ---- File load / clear / init --------------------------------------------
+
+document.getElementById("loadBtn").addEventListener("click", () => {
+  document.getElementById("fileInput").click();
+});
+
+document.getElementById("fileInput").addEventListener("change", e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const text = ev.target.result;
+    let raw;
+    try { raw = JSON.parse(text); } catch (_) {
+      document.getElementById("dataError").textContent = "Invalid JSON — file not loaded.";
+      return;
+    }
+    if (!validate(raw)) {
+      document.getElementById("dataError").textContent = "Unrecognised format — missing apps or phases.";
+      return;
+    }
+    document.getElementById("dataError").textContent = "";
+    localStorage.setItem(LS_KEY, text);
+    boot(raw);
+  };
+  reader.readAsText(file);
+  // Reset so same file can be re-loaded
+  e.target.value = "";
+});
+
+document.getElementById("clearBtn").addEventListener("click", () => {
+  if (!confirm("Clear stored dashboard data?")) return;
+  localStorage.removeItem(LS_KEY);
+  localStorage.removeItem(LS_SRC);
+  PAYLOAD = null; DATA = null; PHASES = null; TODAY = null; openApp = null;
+  document.getElementById("metrics").innerHTML = "";
+  document.getElementById("dailyChart").innerHTML = "";
+  document.getElementById("funnelStepped").innerHTML = "";
+  document.getElementById("detail").hidden = true;
+  document.getElementById("detail").innerHTML = "";
+  document.getElementById("charts").hidden = false;
+  document.getElementById("dataError").textContent = "";
+  showEmptyState("No data loaded.");
+});
+
+// Init — render the cached copy first so the page is never blank, then refresh
+// from the remote feed. A failed refresh leaves the cached view in place.
+(async function init() {
+  const stored = localStorage.getItem(LS_KEY);
+  let shown = false;
+  if (stored) {
+    let raw;
+    try { raw = JSON.parse(stored); } catch (_) { raw = null; }
+    if (raw && validate(raw)) { boot(raw); shown = true; }
+  }
+
+  const src = readSourceParam();
+  if (!src) {
+    if (!shown) showEmptyState("No data loaded.");
+    return;
+  }
+
+  const err = document.getElementById("dataError");
+  try {
+    boot(await loadFromSource(src));
+  } catch (e) {
+    if (shown) {
+      err.textContent = `Showing cached data — refresh from ${src} failed (${e.message}).`;
+    } else {
+      showEmptyState(`Could not load data from ${src} (${e.message}).`);
+    }
+  }
+})();
+</script>
+</body>
+</html>
