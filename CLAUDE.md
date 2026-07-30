@@ -21,7 +21,7 @@ directory to the repo root.
 ```
 Obsidian vault → src/generate.py → data.json → src/deploy-data.sh → <feed>.pages.dev/data.json
                                                                       ↓
-                              career-dashboard.pages.dev/?data=<feed-url>
+                              career-dashboard-4fy.pages.dev/?data=<feed-url>
 ```
 
 Obsidian is the only source of truth. `data.json` is derived and disposable —
@@ -31,6 +31,14 @@ regenerate it rather than editing it, and never commit it.
 it to `localStorage` on first visit so the bare dashboard URL works afterwards.
 It renders the cached copy first, then refreshes; a failed refresh keeps the
 cached view and says so. There is also a manual file picker as a fallback.
+
+## Live URLs
+
+- Dashboard: `https://career-dashboard-4fy.pages.dev` (git-deployed, output directory `app`)
+- Owner's feed: `https://career-data-2ucgrsgthbpa.pages.dev/data.json`
+
+The `-4fy` suffix exists because `career-dashboard.pages.dev` was already taken
+globally; `*.pages.dev` names are not per-account.
 
 ## Deploying
 

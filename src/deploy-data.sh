@@ -26,6 +26,12 @@ if [[ ! -f "$ROOT/data.json" ]]; then
   exit 1
 fi
 
+# First run in a fresh account: the project has to exist before assets upload.
+if ! npx --yes wrangler pages project list 2>/dev/null | grep -q "$PROJECT"; then
+  echo "Creating Pages project $PROJECT ..."
+  npx --yes wrangler pages project create "$PROJECT" --production-branch main
+fi
+
 # Ship a directory containing only the feed, so nothing else is ever published.
 STAGE="$(mktemp -d)"
 trap 'rm -rf "$STAGE"' EXIT
