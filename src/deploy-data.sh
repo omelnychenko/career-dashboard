@@ -42,6 +42,25 @@ npx --yes wrangler pages deploy "$STAGE" \
   --branch main \
   --commit-dirty=true
 
+# Every deployment keeps its own permanent URL carrying a snapshot of the data,
+# so old ones are pruned: each is another public copy that outlives any deletion
+# in the vault. Only the live deployment is kept — data.json is reproducible
+# from the vault, so there is nothing here worth rolling back to.
+echo
+echo "Pruning superseded deployments..."
+KEEP="$(npx --yes wrangler pages deployment list --project-name "$PROJECT" 2>/dev/null \
+  | grep -oE '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}' | head -1)"
+
+npx --yes wrangler pages deployment list --project-name "$PROJECT" 2>/dev/null \
+  | grep -oE '[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}' \
+  | grep -v "^${KEEP}$" \
+  | while read -r id; do
+      # A deployment still serving traffic refuses deletion without --force; it
+      # is deliberately not forced here, so the live feed can never be removed.
+      npx --yes wrangler pages deployment delete "$id" --project-name "$PROJECT" >/dev/null 2>&1 \
+        && echo "  removed $id" || echo "  kept    $id (in use)"
+    done
+
 echo
 echo "Feed:      https://${PROJECT}.pages.dev/data.json"
 echo "Dashboard: <dashboard-url>/?data=https://${PROJECT}.pages.dev/data.json"
