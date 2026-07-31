@@ -19,7 +19,7 @@ public URL.
 ```
 Obsidian vault → src/generate.py → data.json → src/deploy-data.sh → <feed>.pages.dev/data.json
                                                                       ↓
-                              career-dashboard-4fy.pages.dev/?data=<feed-url>
+                              career-4u.pages.dev/?data=<feed-url>
 ```
 
 Obsidian is the only source of truth. `data.json` is derived and disposable —
@@ -32,7 +32,7 @@ cached view and says so. There is also a manual file picker as a fallback.
 
 ## Live URLs
 
-- Dashboard: `https://career-dashboard-4fy.pages.dev` (git-deployed, output directory `app`)
+- Dashboard: `https://career-4u.pages.dev` (git-deployed, output directory `app`)
 - Owner's feed: `https://career-data-2ucgrsgthbpa.pages.dev/data.json`
 
 ## Deploying

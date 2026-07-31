@@ -75,4 +75,4 @@ done
 
 echo
 echo "Feed:      https://${PROJECT}.pages.dev/data.json"
-echo "Dashboard: https://career-dashboard-4fy.pages.dev/?data=https://${PROJECT}.pages.dev/data.json"
+echo "Dashboard: https://career-4u.pages.dev/?data=https://${PROJECT}.pages.dev/data.json"
