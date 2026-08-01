@@ -1,0 +1,13 @@
+name = "career"
+main = "src/worker.js"
+compatibility_date = "2026-07-01"
+
+# The dashboard is served from app/; the payload comes from KV on the same
+# origin, so the browser needs neither CORS nor a ?data= parameter.
+[assets]
+directory = "app"
+binding = "ASSETS"
+
+[[kv_namespaces]]
+binding = "DATA"
+id = "bb5af97b1bc54990bc525a9ecd1225aa"

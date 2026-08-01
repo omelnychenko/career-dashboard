@@ -1,8 +1,8 @@
 <!DOCTYPE html>
 <!--
-  Career dashboard. Ships without data: it loads a data.json feed from the
-  ?data=<url> parameter, remembered per device, with a manual file picker as a
-  fallback. Source of truth is the Obsidian Career vault; see CLAUDE.md.
+  Career dashboard. Ships without data: it loads /payload.json from the same
+  origin, with a manual file picker as a fallback. Source of truth is the
+  Obsidian Career vault; see CLAUDE.md.
 -->
 <html lang="en">
 <head>
@@ -489,25 +489,13 @@ function derive(raw, today) {
 // ---- Boot -----------------------------------------------------------------
 
 const LS_KEY = "careerDashboardData";
-const LS_SRC = "careerDashboardSource";
+
+// Same origin as the page: the Worker serves both this file and the payload,
+// so there is nothing to configure per device.
+const FEED = "/payload.json";
 
 function validate(raw) {
   return raw && Array.isArray(raw.apps) && Array.isArray(raw.phases);
-}
-
-// Remote source: ?data=<url> pins this device to a JSON feed and is remembered
-// afterwards, so the bare dashboard URL keeps working on repeat visits.
-// Only https is accepted — an http feed would be silently blocked as mixed
-// content when the dashboard itself is served over https.
-function readSourceParam() {
-  const q = new URLSearchParams(location.search).get("data");
-  if (!q) return localStorage.getItem(LS_SRC);
-  let url;
-  try { url = new URL(q, location.href); } catch (_) { return null; }
-  const localhost = url.hostname === "localhost" || url.hostname === "127.0.0.1";
-  if (url.protocol !== "https:" && !localhost) return null;
-  localStorage.setItem(LS_SRC, url.href);
-  return url.href;
 }
 
 async function loadFromSource(src) {
@@ -533,7 +521,7 @@ function boot(raw) {
 
 function showEmptyState(msg) {
   document.getElementById("tableWrap").innerHTML =
-    `<div class="empty-state"><p>${msg}</p><p>Open this page with <code>?data=&lt;feed-url&gt;</code>, or click <strong>Load / update data</strong> to pick a data.json built by <code>python3 src/generate.py</code>.</p></div>`;
+    `<div class="empty-state"><p>${msg}</p><p>Run <code>./src/deploy-data.sh</code> to publish the feed, or click <strong>Load / update data</strong> to pick a data.json built by <code>python3 src/generate.py</code>.</p></div>`;
 }
 
 // Quotes included: esc() is interpolated into href="" and title="" attributes,
@@ -908,7 +896,6 @@ document.getElementById("fileInput").addEventListener("change", e => {
 document.getElementById("clearBtn").addEventListener("click", () => {
   if (!confirm("Clear stored dashboard data?")) return;
   localStorage.removeItem(LS_KEY);
-  localStorage.removeItem(LS_SRC);
   PAYLOAD = null; DATA = null; TODAY = null; openApp = null;
   document.getElementById("metrics").innerHTML = "";
   document.getElementById("dailyChart").innerHTML = "";
@@ -931,20 +918,14 @@ document.getElementById("clearBtn").addEventListener("click", () => {
     if (raw && validate(raw)) { boot(raw); shown = true; }
   }
 
-  const src = readSourceParam();
-  if (!src) {
-    if (!shown) showEmptyState("No data loaded.");
-    return;
-  }
-
   const err = document.getElementById("dataError");
   try {
-    boot(await loadFromSource(src));
+    boot(await loadFromSource(FEED));
   } catch (e) {
     if (shown) {
-      err.textContent = `Showing cached data — refresh from ${src} failed (${e.message}).`;
+      err.textContent = `Showing cached data — refresh failed (${e.message}).`;
     } else {
-      showEmptyState(`Could not load data from ${src} (${e.message}).`);
+      showEmptyState(`Could not load data (${e.message}).`);
     }
   }
 })();

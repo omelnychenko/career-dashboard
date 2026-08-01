@@ -2,7 +2,7 @@
 """Career dashboard generator.
 
 Single source of truth: YAML frontmatter in the Obsidian Career vault.
-This script READS that frontmatter (plus stage notes and Match points), and
+This script READS that frontmatter (plus stage notes), and
 writes data.json — a timeless payload with no date-relative derivations.
 The browser (index.html) derives all date-sensitive fields at render time.
 
@@ -21,7 +21,7 @@ from pathlib import Path
 
 VAULT = Path(
     "/Users/omelnychenko/Library/Mobile Documents/iCloud~md~obsidian/Documents"
-    "/Life/Growth/Career"
+    "/Life/Career"
 )
 # Flat application folders: Applications/YYYY-MM-DD — Company — Role/
 APPLICATIONS = VAULT / "Applications"
