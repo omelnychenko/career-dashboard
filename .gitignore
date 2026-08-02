@@ -1,6 +1,27 @@
+# The payload, in every shape it takes on disk: the generator's output, a copy
+# saved from the browser under the route's own name, and hand-made backups.
+# It carries company names, salary asks and interview feedback — it belongs in
+# KV, never in the repo.
 data.json
+payload.json
+data*.json
+
+# Secrets wrangler reads for local runs.
+.dev.vars
+.dev.vars.*
+.env
+.env.*
+
+# Wrangler's local state — includes a full copy of the KV payload and the
+# resolved account id.
+.wrangler/
+
 __pycache__/
 *.pyc
+.venv/
+node_modules/
+
 .DS_Store
 .claude/
-.wrangler/
+.idea/
+.vscode/
