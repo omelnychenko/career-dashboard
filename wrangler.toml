@@ -2,8 +2,9 @@ name = "career"
 main = "src/worker.js"
 compatibility_date = "2026-07-01"
 
-# The dashboard is served from app/; the payload comes from KV on the same
-# origin, so the browser needs neither CORS nor a ?data= parameter.
+# Everything in app/ is public; the Worker answers /payload.json itself. This
+# directory is the entire published surface — a file moved out of it stops being
+# reachable, and one moved in starts being served without any code path.
 [assets]
 directory = "app"
 binding = "ASSETS"

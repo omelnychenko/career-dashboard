@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import html
 import json
+import os
 import re
 from pathlib import Path
 
@@ -237,23 +238,6 @@ def _inline(s: str) -> str:
 
 # --- Stage extraction ------------------------------------------------------
 
-def extract_section(body: str, header: str) -> str:
-    """Return the markdown under a heading, up to the next heading of the same
-    or higher level (so nested `###` subsections are kept)."""
-    head_pat = re.compile(
-        rf"^(#{{1,6}})\s+{re.escape(header)}\s*$", re.MULTILINE
-    )
-    m = head_pat.search(body)
-    if not m:
-        return ""
-    level = len(m.group(1))
-    rest = body[m.end():]
-    # stop at the next heading whose level is <= this section's level
-    stop = re.compile(rf"^#{{1,{level}}}\s", re.MULTILINE)
-    s = stop.search(rest)
-    return (rest[: s.start()] if s else rest).strip()
-
-
 def phase_of(stage_name: str) -> str:
     """Map a free-text stage name to a canonical pipeline phase.
 
@@ -299,8 +283,6 @@ def load_stages(app_dir: Path) -> list[dict]:
         fm, body = split_frontmatter(f.read_text(encoding="utf-8"))
         if fm.get("type") != "stage":
             continue
-        feedback = extract_section(body, "Their feedback (if any)") \
-            or extract_section(body, "Their feedback")
         name = fm.get("stage", "") or f.stem
         stages.append({
             "stage": name,
@@ -308,8 +290,6 @@ def load_stages(app_dir: Path) -> list[dict]:
             "phase": phase_of(name),
             "date": str(fm.get("date", "")),
             "result": str(fm.get("result", "") or ""),
-            "interviewer": fm.get("interviewer", ""),
-            "feedback_html": md_to_html(feedback) if feedback else "",
             "body_html": md_to_html(body),
         })
     stages.sort(key=lambda s: s["date"])
@@ -403,21 +383,32 @@ def main() -> None:
     apps, skipped = load_applications()
     if not apps:
         raise SystemExit("Refusing to write an empty data.json — 0 applications found.")
+    # A card the vault holds but this run could not read is indistinguishable from
+    # one that was never written: the payload is simply shorter, and every later
+    # step reports success. A typo in one `type:` would quietly drop it from the
+    # dashboard, so stop and name the files instead.
+    if skipped:
+        raise SystemExit(
+            f"Refusing to write a partial data.json — {len(skipped)} of "
+            f"{len(apps) + len(skipped)} applications could not be read:\n  "
+            + "\n  ".join(skipped)
+        )
     payload = {
-        "schema": 1,
         "phases": PHASES,
         "ghost_days": GHOST_DAYS,
         "daily_target": DAILY_TARGET,
         "daily_window": DAILY_WINDOW,
         "apps": apps,
     }
-    DATA_JSON.write_text(
+    # Written via a temp file: a truncated data.json from an interrupted write
+    # still looks complete to deploy-data.sh, which would push the fragment to KV.
+    tmp = DATA_JSON.with_suffix(".json.tmp")
+    tmp.write_text(
         json.dumps(payload, ensure_ascii=False, indent=2),
         encoding="utf-8",
     )
+    os.replace(tmp, DATA_JSON)
     print(f"Wrote {DATA_JSON} ({len(apps)} applications)")
-    for s in skipped:
-        print(f"  skipped: {s}")
 
 
 if __name__ == "__main__":

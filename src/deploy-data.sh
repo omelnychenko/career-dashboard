@@ -1,15 +1,12 @@
 #!/usr/bin/env bash
-# Publish data.json to the Worker's KV store.
-#
-# The value is overwritten in place, so no public snapshot of an earlier payload
-# survives — unlike a Pages deploy, which kept every past upload at its own
-# permanent URL. First run needs an authenticated CLI:
+# Publish data.json to the Worker's KV store, overwriting the value in place so
+# no public snapshot of an earlier payload survives. First run needs an
+# authenticated CLI:
 #
 #   npx wrangler login
 #   ./src/deploy-data.sh
 set -euo pipefail
 
-# data.json lives in the project root, one level up from this script.
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 if [[ ! -f "$ROOT/data.json" ]]; then

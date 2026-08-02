@@ -4,7 +4,7 @@
 
 ```
 app/      → static files the Worker serves. Public: put nothing here that isn't.
-src/      → the Worker, the generator, the deploy script.
+src/      → the Worker, the generator, the two deploy scripts.
 data.json → generated, gitignored, pushed to KV rather than committed.
 ```
 
@@ -36,9 +36,12 @@ Access.
 
 ## Deploying
 
-- **Dashboard code** — `npx wrangler deploy`.
+- **Dashboard code** — `git push`; Workers Builds deploys it in about half a
+  minute. To publish from this machine instead, use `./src/deploy-code.sh`
+  rather than bare `wrangler deploy`: it refuses, unless overridden, to ship
+  code that is not in `origin/main`, so the live Worker never runs something
+  that exists nowhere else.
 - **Data** — `./src/deploy-data.sh`, which overwrites the KV key in place.
-  Nothing accumulates: there are no per-deploy snapshots to prune.
 - `job-record` runs generate + deploy-data after every vault write. Locally, the
   `career-dashboard` zsh function does the same and opens the hosted page;
   `career-dashboard-local` runs `wrangler dev` against a local KV copy.
@@ -62,5 +65,7 @@ independent guards:
   else needs a dashboard gets their own Worker and KV key.
 
 Access sets that header itself and strips any copy sent by the client, so it
-cannot be forged. With Access disabled the header is absent and the check
-passes — it hardens Access rather than replacing it.
+cannot be forged. A request without it is refused rather than allowed: an
+absent header means the request never passed through Access, and treating that
+as acceptable would make the second guard depend on the first. The exception is
+`localhost`, so `wrangler dev` still works.

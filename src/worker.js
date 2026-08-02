@@ -16,10 +16,16 @@ export default {
     }
 
     // Set by Access on every authenticated request, and stripped from incoming
-    // requests by Cloudflare, so it cannot be spoofed by the client. Absent
-    // when Access is not yet enabled in front of this Worker.
+    // requests by Cloudflare, so it cannot be spoofed by the client.
+    //
+    // A missing header means the request did not pass through Access — either
+    // it is turned off, or its policy no longer covers the route this request
+    // arrived on. Both are indistinguishable from here, and both are reasons to
+    // refuse: treating an absent header as "fine" would make this check depend
+    // on the very thing it is supposed to be independent of.
     const email = request.headers.get("cf-access-authenticated-user-email");
-    if (email && email.toLowerCase() !== OWNER) {
+    const local = url.hostname === "localhost" || url.hostname === "127.0.0.1";
+    if (email?.toLowerCase() !== OWNER && !local) {
       return new Response("Not your data.", { status: 403 });
     }
 

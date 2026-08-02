@@ -94,9 +94,6 @@
   .metric.m-all .num { color: var(--text); }
   .metric.m-applied .num { color: #9aa4b5; }
   .metric.m-active .num { color: #4ade80; }
-  .metric.m-upcoming .num { color: #93c5fd; }
-  .metric.m-update .num { color: #c4b5fd; }
-  .metric.m-ghosted .num { color: var(--amber); }
   .metric.m-offers .num { color: #60a5fa; }
   .metric.m-rejected .num { color: #f87171; }
 
@@ -252,10 +249,6 @@
   .kv { display: grid; grid-template-columns: 130px 1fr; gap: 6px 14px; margin-bottom: 20px; }
   .kv dt { color: var(--muted); }
   .kv dd { margin: 0; }
-  .modal-body .md { margin: 6px 0 0; padding-left: 20px; }
-  .modal-body h3, .modal-body h4, .modal-body h5 { margin: 14px 0 4px; }
-  .modal-body p { margin: 6px 0; }
-  .modal-body code { background: #21262f; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
 
   /* Tab bar */
   .tab-bar {
@@ -417,11 +410,8 @@ function computeMetrics(apps) {
     all: apps.length,
     applied: apps.filter(a => a.applied && !a.ghosted).length,
     active: apps.filter(a => a.status === "active").length,
-    upcoming: apps.filter(a => a.upcoming).length,
-    needs_update: apps.filter(a => a.needs_update && !a.ghosted).length,
     offers: apps.filter(a => a.status === "offer").length,
     rejected: apps.filter(a => a.status === "rejected").length,
-    ghosted: apps.filter(a => a.ghosted).length,
   };
 }
 
@@ -435,8 +425,7 @@ function computeFunnel(apps, phases) {
   return phases.map((phase, i) => {
     const prev = i === 0 ? counts[0] : counts[i - 1];
     const conv = prev ? Math.round(100 * counts[i] / prev) : 0;
-    const of_total = n ? Math.round(100 * counts[i] / n) : 0;
-    return { phase, count: counts[i], conv, of_total };
+    return { phase, count: counts[i], conv };
   });
 }
 
@@ -475,7 +464,7 @@ function computeDaily(apps, today, window, target) {
   const avg = window ? Math.round(total / window * 10) / 10 : 0;
   const max = days.reduce((m, d) => Math.max(m, d.count), 0);
 
-  return { days, window, today: counts[today] || 0, last7, avg, max, target };
+  return { days, today: counts[today] || 0, last7, avg, max, target };
 }
 
 function derive(raw, today) {
@@ -483,7 +472,7 @@ function derive(raw, today) {
   const metrics = computeMetrics(apps);
   const funnel = computeFunnel(apps, raw.phases);
   const daily = computeDaily(apps, today, raw.daily_window, raw.daily_target);
-  return { schema: raw.schema, phases: raw.phases, apps, metrics, funnel, daily, today };
+  return { apps, metrics, funnel, daily };
 }
 
 // ---- Boot -----------------------------------------------------------------
