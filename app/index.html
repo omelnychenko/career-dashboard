@@ -41,10 +41,9 @@
     --space-5: 24px;
     --space-6: 32px;
 
-    /* Four sizes, no more: display for the funnel counts, title for headings,
-       body for everything readable, caption for labels, badges and axes. */
-    --fs-display: 18px;
-    --fs-title: 14px;
+    /* Three sizes, no more: title for headings and the funnel counts, body for
+       everything readable, caption for labels, badges and axes. */
+    --fs-title: 16px;
     --fs-body: 12px;
     --fs-caption: 10px;
 
@@ -103,18 +102,33 @@
   .panel-funnel   { grid-column: 1 / span 3;  grid-row: 1; }
   .panel-daily    { grid-column: 4 / -1;      grid-row: 1; }
 
-  /* Table: full width on its own, half once the detail card opens beside it. */
   .card-table {
     grid-row: 2; grid-column: 1 / -1;
     display: flex; flex-direction: column;
     min-width: 0; min-height: 0; padding: 0; overflow: hidden;
   }
-  .layout.has-detail .card-table { grid-column: 1 / span 3; }
-  .pane-detail {
-    grid-row: 2; grid-column: 4 / -1;
-    min-width: 0; min-height: 0; overflow-y: auto;
+
+  /* Detail opens as a modal over the page: a dimmed backdrop plus a centred
+     panel that scrolls internally, so a long record never scrolls the page
+     behind it. */
+  .modal-overlay {
+    position: fixed; inset: 0; z-index: 50;
+    display: flex; align-items: center; justify-content: center;
+    padding: var(--space-5);
+    background: rgba(29, 29, 31, 0.35);
+    animation: overlay-in .12s ease-out;
   }
-  .pane-detail[hidden] { display: none; }
+  .modal-overlay[hidden] { display: none; }
+  @keyframes overlay-in { from { opacity: 0 } to { opacity: 1 } }
+  .detail-card {
+    width: min(780px, 100%); max-height: 100%;
+    overflow-y: auto;
+    animation: panel-in .14s ease-out;
+  }
+  @keyframes panel-in {
+    from { opacity: 0; transform: translateY(6px) }
+    to   { opacity: 1; transform: none }
+  }
 
   /* Controls row: filters left, search right — pinned on top of the left card */
   .controls {
@@ -217,7 +231,7 @@
     font-size: var(--fs-caption); text-transform: uppercase; letter-spacing: .04em;
     color: var(--text-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   }
-  .step-count { font-size: var(--fs-display); font-weight: 700; color: var(--text); line-height: 1.1; }
+  .step-count { font-size: var(--fs-title); font-weight: 700; color: var(--text); line-height: 1.1; }
   .step-meta { font-size: var(--fs-caption); color: var(--text-soft); }
   .step-bar { display: block; margin-top: auto; width: 100%; height: 6px;
     background: var(--track); border-radius: 3px; overflow: hidden; }
@@ -245,6 +259,14 @@
   .company-role { line-height: 1.25; }
   .cr-company { font-weight: 600; color: var(--text); }
   .cr-role { font-size: var(--fs-caption); color: var(--text-soft); margin-top: 2px; }
+  /* Stack chips: outlined, wrapping within the cell. */
+  .stack-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+  .chip {
+    display: inline-block; padding: 1px 6px; border-radius: 5px;
+    border: 1px solid var(--track); background: var(--surface-soft);
+    color: var(--text-soft); font-size: var(--fs-caption); white-space: nowrap;
+  }
+  .chip-more { color: var(--text-faint); }
   /* Salary: single normalized €/mo figure; original lives in the detail card. */
   .sal-primary { color: var(--text); }
   /* Last contact: days-since on top (amber when stale), exact date muted below. */
@@ -284,20 +306,20 @@
   .arrow { color: var(--text-faint); }
   .empty { color: var(--text-faint); font-style: italic; }
 
-  /* Detail — a card appended under the charts, not an overlay. */
+  /* Detail modal head: title block left, close control on the title's line. */
   .detail-head {
     display: flex; justify-content: space-between; align-items: flex-start;
     gap: var(--space-4); margin-bottom: var(--space-4);
   }
-  .back-btn {
-    border: 1px solid var(--track); border-radius: var(--radius-control);
-    background: var(--surface); color: var(--text-soft);
-    cursor: pointer; padding: 4px var(--space-3);
-    font-family: inherit; font-size: var(--fs-caption);
-    margin-bottom: var(--space-3);
-    transition: color .12s, border-color .12s, background .12s;
+  .close-btn {
+    flex: 0 0 auto; width: 28px; height: 28px;
+    display: flex; align-items: center; justify-content: center;
+    border: none; border-radius: 50%;
+    background: transparent; color: var(--text-soft);
+    cursor: pointer; font-family: inherit; font-size: var(--fs-title); line-height: 1;
+    transition: color .12s, background .12s;
   }
-  .back-btn:hover { color: var(--text); border-color: var(--text-faint); background: var(--surface-soft); }
+  .close-btn:hover { color: var(--text); background: var(--surface-soft); }
   .detail-head h2 { margin: 0 0 var(--space-1); font-size: var(--fs-title); font-weight: 600; line-height: 1.3; }
   .detail-head .sub { color: var(--text-soft); }
   .kv { display: grid; grid-template-columns: 120px 1fr; gap: 6px var(--space-4); margin-bottom: var(--space-5); }
@@ -351,7 +373,6 @@
     body { height: auto; overflow: auto; }
     .layout { grid-template-columns: 1fr; grid-template-rows: none; }
     .layout > * { grid-column: 1 !important; grid-row: auto !important; }
-    .pane-detail { overflow: visible; }
     #tableWrap { max-height: 60vh; }
   }
 </style>
@@ -384,8 +405,7 @@
     <div id="dailyChart"></div>
   </div>
 
-  <!-- Row 2: filters + search pinned on top, scrolling table below;
-       the detail card takes the right half once a row is opened. -->
+  <!-- Row 2: filters + search pinned on top, scrolling table below -->
   <div class="card card-table">
     <div class="controls">
       <div class="metrics" id="metrics"></div>
@@ -396,7 +416,11 @@
     </div>
     <div id="tableWrap"></div>
   </div>
-  <div class="card detail-card pane-detail" id="detail" hidden></div>
+</div>
+
+<!-- Detail modal, outside the grid: a click on the backdrop closes it -->
+<div class="modal-overlay" id="detailOverlay" hidden>
+  <div class="card detail-card" id="detail" role="dialog" aria-modal="true"></div>
 </div>
 
 <script>
@@ -740,6 +764,22 @@ function renderSteppedFunnel() {
 }
 
 // ---- Table ----
+
+// Stacks run up to six entries; showing them all would set the column's width
+// off the longest one. First three as chips, the rest as +N with the full list
+// on hover.
+const STACK_SHOWN = 3;
+
+function stackCell(stack) {
+  const all = stack || [];
+  if (!all.length) return '<span class="muted">—</span>';
+  const chips = all.slice(0, STACK_SHOWN)
+    .map(s => `<span class="chip">${esc(s)}</span>`).join("");
+  const rest = all.length - STACK_SHOWN;
+  const more = rest > 0 ? `<span class="chip chip-more">+${rest}</span>` : "";
+  return `<span class="stack-chips" title="${esc(all.join(", "))}">${chips}${more}</span>`;
+}
+
 function rowHtml(a) {
   const tags = (a.upcoming ? `<span class="badge tag-up">upcoming</span>` : "")
              + (a.ghosted ? `<span class="badge tag-ghost">ghosted</span>` : "")
@@ -755,6 +795,7 @@ function rowHtml(a) {
       <td class="status-pipeline">${dualBadge(a.status, a.stages)}${tags}</td>
       <td class="lastcontact">${a.last_contact ? `${a.days_since_contact != null ? `<div class="lc-days" style="color:${a.days_since_contact >= 14 ? 'var(--warn-strong)' : 'var(--text)'}">${a.days_since_contact}д</div>` : ""}<div class="lc-date">${esc(a.last_contact)}</div>` : '<span class="muted">—</span>'}</td>
       <td class="salary">${incognito ? '<span class="muted">—</span>' : (a.salary_primary ? `<div class="sal-primary">${esc(salaryShort(a.salary_primary))}</div>` : '<span class="muted">—</span>')}</td>
+      <td class="stack">${stackCell(a.stack_all)}</td>
     </tr>`;
 }
 
@@ -773,7 +814,7 @@ function render() {
   const body = rows.length
     ? `<table>
         <thead><tr>
-          <th>Company / Role</th><th>Pipeline / Status</th><th>Last contact</th><th>Salary asked</th>
+          <th>Company / Role</th><th>Pipeline / Status</th><th>Last contact</th><th>Salary asked</th><th>Stack</th>
         </tr></thead>
         <tbody>${rows.map(rowHtml).join("")}</tbody>
       </table>`
@@ -830,10 +871,10 @@ function openDetail(a) {
   detail.innerHTML = `
     <div class="detail-head">
       <div>
-        <button class="back-btn" id="detailBack" title="Close (Esc)">← Close</button>
         <h2>${esc(a.company)} — ${esc(a.role)}</h2>
         <div class="sub">${statusBadge(a.status)} ${a.seniority ? "· " + esc(a.seniority) : ""} ${a.location ? "· " + esc(a.location) : ""}</div>
       </div>
+      <button class="close-btn" id="detailBack" title="Close (Esc)" aria-label="Close">×</button>
     </div>
     <div class="tab-bar">${tabBtns.join("")}</div>
     ${appPanel}
@@ -852,11 +893,8 @@ function openDetail(a) {
 
   detail.querySelector("#detailBack").addEventListener("click", clearDetail);
 
-  // The card takes the right half of the bottom row; has-detail narrows the
-  // table to make room for it.
-  detail.hidden = false;
+  document.getElementById("detailOverlay").hidden = false;
   detail.scrollTop = 0;
-  document.getElementById("layout").classList.add("has-detail");
 }
 
 // #metrics is re-rendered wholesale, so delegate clicks from a stable parent.
@@ -868,15 +906,18 @@ document.getElementById("tableWrap").addEventListener("click", e => {
   openDetail(DATA[+tr.dataset.i]);
 });
 document.addEventListener("keydown", e => { if (e.key === "Escape") clearDetail(); });
+// Backdrop click closes; clicks inside the panel must not, so match the overlay
+// itself rather than any descendant.
+document.getElementById("detailOverlay").addEventListener("click", e => {
+  if (e.target === e.currentTarget) clearDetail();
+});
 
 function clearDetail() {
   openApp = null;
   document.querySelectorAll("#tableWrap tbody tr.is-selected")
     .forEach(tr => tr.classList.remove("is-selected"));
-  const detail = document.getElementById("detail");
-  detail.hidden = true;
-  detail.innerHTML = "";
-  document.getElementById("layout").classList.remove("has-detail");
+  document.getElementById("detailOverlay").hidden = true;
+  document.getElementById("detail").innerHTML = "";
 }
 const searchInput = document.getElementById("search");
 const searchWrap = document.getElementById("searchWrap");
