@@ -3,9 +3,9 @@
 ## Layout
 
 ```
-app/      → static files the Worker serves. Public: put nothing here that isn't.
-src/      → the Worker, the generator, the two deploy scripts.
-data.json → generated, gitignored, pushed to KV rather than committed.
+app/         → static files the Worker serves. Public: put nothing here that isn't.
+src/         → the Worker, the generator, the two deploy scripts.
+payload.json → generated, gitignored, pushed to KV rather than committed.
 ```
 
 Only `app/` is reachable from the browser: the Worker serves that directory
@@ -16,12 +16,15 @@ moved out of `app/` stops being public.
 ## Data flow
 
 ```
-Obsidian vault → src/generate.py → data.json → src/deploy-data.sh → KV key "payload"
-                                                                      ↓
-                          career.omnilab.workers.dev/  →  /payload.json
+Obsidian vault → src/generate.py → payload.json → src/deploy-data.sh → KV key "payload"
+                                                                         ↓
+                             career.omnilab.workers.dev/  →  /payload.json
 ```
 
-Obsidian is the only source of truth. `data.json` is derived and disposable —
+One payload, one name at every hop: the file on disk, the KV key it is pushed
+to, and the route it is served on all read `payload`.
+
+Obsidian is the only source of truth. `payload.json` is derived and disposable —
 regenerate it rather than editing it, and never commit it.
 
 The dashboard and its data share one origin, so `app/index.html` just fetches
@@ -54,7 +57,7 @@ npx wrangler login
 
 ## Privacy
 
-`data.json` carries company names, salary asks and interview feedback. Two
+`payload.json` carries company names, salary asks and interview feedback. Two
 independent guards:
 
 - **Cloudflare Access** in front of the Worker — one-time PIN to an allowlisted

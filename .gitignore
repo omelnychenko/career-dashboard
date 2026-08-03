@@ -1,10 +1,10 @@
 # The payload, in every shape it takes on disk: the generator's output, a copy
-# saved from the browser under the route's own name, and hand-made backups.
-# It carries company names, salary asks and interview feedback — it belongs in
-# KV, never in the repo.
-data.json
+# saved from the browser, and hand-made backups. It carries company names,
+# salary asks and interview feedback — it belongs in KV, never in the repo.
 payload.json
+data.json
 data*.json
+payload*.json
 
 # Secrets wrangler reads for local runs.
 .dev.vars

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Publish data.json to the Worker's KV store, overwriting the value in place so
+# Publish payload.json to the Worker's KV store, overwriting the value in place so
 # no public snapshot of an earlier payload survives. First run needs an
 # authenticated CLI:
 #
@@ -9,8 +9,8 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-if [[ ! -f "$ROOT/data.json" ]]; then
-  echo "data.json missing — run: python3 src/generate.py" >&2
+if [[ ! -f "$ROOT/payload.json" ]]; then
+  echo "payload.json missing — run: python3 src/generate.py" >&2
   exit 1
 fi
 
@@ -18,7 +18,7 @@ fi
 # writes to a local simulation and reports success while the dashboard sees
 # nothing.
 npx --yes wrangler kv key put payload \
-  --path "$ROOT/data.json" \
+  --path "$ROOT/payload.json" \
   --binding DATA \
   --remote \
   --config "$ROOT/wrangler.toml"

@@ -352,6 +352,13 @@
   .detail-card .md-body p { margin: 6px 0; }
   .detail-card .md-body ul.md { margin: 6px 0; padding-left: 20px; }
   .detail-card .md-body code { background: var(--surface-soft); border: 1px solid var(--track); padding: 1px 5px; border-radius: 4px; font-size: var(--fs-caption); }
+  /* Question tables: the Result column is a single glyph, the Note column
+     carries the prose, so only Note is allowed to take the leftover width. */
+  .detail-card .md-body table.md { width: 100%; border-collapse: collapse; margin: var(--space-3) 0; font-size: var(--fs-caption); table-layout: auto; }
+  .detail-card .md-body table.md th { text-align: left; font-weight: 600; color: var(--text-soft); border-bottom: 1px solid var(--track); padding: var(--space-2) var(--space-3) var(--space-2) 0; white-space: nowrap; }
+  .detail-card .md-body table.md td { vertical-align: top; border-bottom: 1px solid var(--track); padding: var(--space-2) var(--space-3) var(--space-2) 0; }
+  .detail-card .md-body table.md tr:last-child td { border-bottom: none; }
+  .detail-card .md-body table.md td:nth-child(3) { text-align: center; white-space: nowrap; }
 
   .btn {
     background: var(--surface); border: 1px solid var(--track); color: var(--text-soft);
