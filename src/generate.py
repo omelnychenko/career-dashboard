@@ -24,8 +24,8 @@ VAULT = Path(
     "/Users/omelnychenko/Library/Mobile Documents/iCloud~md~obsidian/Documents"
     "/Life/Career"
 )
-# Flat application folders: Applications/YYYY-MM-DD — Company — Role/
-APPLICATIONS = VAULT / "Applications"
+# Applications live under their company: Companies/Company/YYYY-MM-DD — Role/
+COMPANIES = VAULT / "Companies"
 # data.json lands in the project root: it is neither published code (app/) nor
 # source (src/), and it is gitignored.
 HERE = Path(__file__).resolve().parent.parent
@@ -333,10 +333,12 @@ def reached_phase_index(stages: list[dict]) -> int:
 
 def load_applications() -> tuple[list[dict], list[str]]:
     apps, skipped = [], []
-    for app_md in sorted(APPLICATIONS.glob("*/_application.md")):
+    for app_md in sorted(COMPANIES.glob("*/*/_application.md")):
         fm, body = split_frontmatter(app_md.read_text(encoding="utf-8-sig"))
         if str(fm.get("type", "")).strip().lower() != "application":
-            skipped.append(f"{app_md.parent.name}: type={fm.get('type')!r}")
+            skipped.append(
+                f"{app_md.parent.parent.name}/{app_md.parent.name}: type={fm.get('type')!r}"
+            )
             continue
         app_dir = app_md.parent
         stages = load_stages(app_dir)
@@ -346,9 +348,9 @@ def load_applications() -> tuple[list[dict], list[str]]:
         )
         status = derive_status(fm, stages)
         applied_date = str(norm["applied_date"])
-        folder_parts = app_dir.name.split(" — ")
         apps.append({
-            "company": norm["company"] or (folder_parts[1] if len(folder_parts) >= 3 else app_dir.name),
+            # The company folder is authoritative when frontmatter omits it.
+            "company": norm["company"] or app_dir.parent.name,
             "role": norm["role"],
             "stack_main": first_stack(norm["stack"]),
             "stack_all": norm["stack"] if isinstance(norm["stack"], list) else [norm["stack"]] if norm["stack"] else [],
@@ -378,8 +380,8 @@ def main() -> None:
     # A missing vault makes glob return nothing rather than raising, so without
     # these two guards a moved folder overwrites data.json with an empty payload
     # and the deploy ships it — the dashboard goes blank with exit code 0.
-    if not APPLICATIONS.is_dir():
-        raise SystemExit(f"Vault not found: {APPLICATIONS}")
+    if not COMPANIES.is_dir():
+        raise SystemExit(f"Vault not found: {COMPANIES}")
     apps, skipped = load_applications()
     if not apps:
         raise SystemExit("Refusing to write an empty data.json — 0 applications found.")
