@@ -4,9 +4,21 @@
 
 ```
 app/         → static files the Worker serves. Public: put nothing here that isn't.
-src/         → the Worker, the generator, the two deploy scripts.
+src/         → the Worker, the generator, the vault validators, the two deploy scripts.
+tests/       → test_validators.py — the fixture suite behind the validators.
 payload.json → generated, gitignored, pushed to KV rather than committed.
 ```
+
+`python3 tests/test_validators.py` builds one valid fixture per entity plus one
+per defect, each the valid base with a single mutation, and asserts both the
+expected message and the violation count — a defect caught by the wrong rule
+fails. Run it after touching a validator: the vault sweep passing proves
+nothing on its own, since a rule that stopped firing also passes.
+
+Inside `src/`, `vault_schema.py` is the single definition of the vault's shape —
+every enum, the frontmatter parser, the heading walker. Both halves import it:
+`generate.py`, which trusts the vault, and `validate*.py`, which prove it. A
+second copy of an enum anywhere else is the drift this split exists to prevent.
 
 Only `app/` is reachable from the browser: the Worker serves that directory
 through its `ASSETS` binding and answers `/payload.json` itself, so nothing
@@ -16,10 +28,17 @@ moved out of `app/` stops being public.
 ## Data flow
 
 ```
-Obsidian vault → src/generate.py → payload.json → src/deploy-data.sh → KV key "payload"
-                                                                         ↓
-                             career.omnilab.workers.dev/  →  /payload.json
+Obsidian vault → src/validate.py → src/generate.py → payload.json → src/deploy-data.sh → KV key "payload"
+                    (gate)                                                                  ↓
+                                                  career.omnilab.workers.dev/  →  /payload.json
 ```
+
+`validate.py` runs before the generator, on the files a write just touched
+(`python3 src/validate.py "<file>"`) or over the whole vault (no arguments), and
+exits non-zero on any schema violation. It is a gate, not a report: the vault
+has no version control and no undo, so the cheapest place to catch a malformed
+note is the moment it is written, not the month later when a dashboard row is
+missing.
 
 One payload, one name at every hop: the file on disk, the KV key it is pushed
 to, and the route it is served on all read `payload`.
@@ -30,7 +49,8 @@ regenerate it rather than editing it, and never commit it.
 The dashboard and its data share one origin, so `app/index.html` just fetches
 `/payload.json` — no CORS, no feed URL to configure per device. It renders the
 `localStorage` copy first, then refreshes; a failed refresh keeps the cached
-view and says so. A manual file picker stays as an offline fallback.
+view and says so. That cache is the only offline path — a first visit on a
+device with no network has nothing to show.
 
 ## Live URL
 

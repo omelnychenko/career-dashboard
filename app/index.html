@@ -253,8 +253,6 @@
   tbody tr { border-bottom: 1px solid var(--track); cursor: pointer; transition: background .12s; }
   tbody tr:hover { background: var(--surface-soft); }
   tbody tr.is-selected { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
-  tbody tr.row-upcoming { box-shadow: inset 3px 0 0 var(--accent); }
-  tbody tr.row-ghosted { box-shadow: inset 3px 0 0 var(--warn); }
   tbody td { padding: var(--space-2) var(--space-3); vertical-align: middle; }
   .company-role { line-height: 1.25; }
   .cr-company { font-weight: 600; color: var(--text); }
@@ -269,6 +267,8 @@
   .chip-more { color: var(--text-faint); }
   /* Salary: single normalized €/mo figure; original lives in the detail card. */
   .sal-primary { color: var(--text); }
+  /* Seniority: short enum, never wraps, stays a narrow column next to the wider ones. */
+  .seniority { white-space: nowrap; }
   /* Last contact: days-since on top (amber when stale), exact date muted below. */
   .lastcontact { line-height: 1.25; }
   .lc-date { font-size: var(--fs-caption); color: var(--text-soft); margin-top: 2px; }
@@ -280,9 +280,6 @@
   .st-offer    { background: var(--accent-soft); color: var(--accent); }
   .st-rejected { background: var(--red-soft); color: var(--red-strong); }
   .st-withdrawn{ background: var(--track); color: var(--text-soft); }
-  .tag-ghost { background: var(--warn-soft); color: var(--warn-strong); margin-left: 6px; }
-  .tag-up    { background: var(--accent-soft); color: var(--accent); margin-left: 6px; }
-  .tag-update{ background: #f3edff; color: #6d4bc7; margin-left: 6px; }
 
   /* Dual badge: one outline in the status color; left half filled (status),
      right half outline-only (pipeline). --st-* is set inline per status. */
@@ -306,20 +303,11 @@
   .arrow { color: var(--text-faint); }
   .empty { color: var(--text-faint); font-style: italic; }
 
-  /* Detail modal head: title block left, close control on the title's line. */
+  /* Detail modal head: title block left, status badge top-right on the title's line. */
   .detail-head {
     display: flex; justify-content: space-between; align-items: flex-start;
     gap: var(--space-4); margin-bottom: var(--space-4);
   }
-  .close-btn {
-    flex: 0 0 auto; width: 28px; height: 28px;
-    display: flex; align-items: center; justify-content: center;
-    border: none; border-radius: 50%;
-    background: transparent; color: var(--text-soft);
-    cursor: pointer; font-family: inherit; font-size: var(--fs-title); line-height: 1;
-    transition: color .12s, background .12s;
-  }
-  .close-btn:hover { color: var(--text); background: var(--surface-soft); }
   .detail-head h2 { margin: 0 0 var(--space-1); font-size: var(--fs-title); font-weight: 600; line-height: 1.3; }
   .detail-head .sub { color: var(--text-soft); }
   .kv { display: grid; grid-template-columns: 120px 1fr; gap: 6px var(--space-4); margin-bottom: var(--space-5); }
@@ -346,9 +334,15 @@
   .tab-panel.active { display: block; }
   .detail-card a { color: var(--accent); text-decoration: none; }
   .detail-card a:hover { text-decoration: underline; }
-  /* Divider between the Application service block (.kv) and the file body. */
-  .detail-card .kv + .md-body { border-top: 1px solid var(--track); margin-top: var(--space-4); padding-top: var(--space-4); }
-  .detail-card .md-body h3, .detail-card .md-body h4, .detail-card .md-body h5, .detail-card .md-body h6 { margin: var(--space-4) 0 6px; font-size: var(--fs-body); }
+  /* A stage's `###` headings arrive here as h5. At body size and bold they were
+     indistinguishable from the `**Angular core**` labels that group the tables
+     under them, flattening the one hierarchy the tab has — so they take the
+     same uppercase caption treatment as every other section label on the page. */
+  .detail-card .md-body h3, .detail-card .md-body h4, .detail-card .md-body h5, .detail-card .md-body h6 {
+    margin: var(--space-5) 0 var(--space-2); font-size: var(--fs-caption);
+    text-transform: uppercase; letter-spacing: .04em; color: var(--text-soft);
+  }
+  .detail-card .md-body > :first-child { margin-top: 0; }
   .detail-card .md-body p { margin: 6px 0; }
   .detail-card .md-body ul.md { margin: 6px 0; padding-left: 20px; }
   .detail-card .md-body code { background: var(--surface-soft); border: 1px solid var(--track); padding: 1px 5px; border-radius: 4px; font-size: var(--fs-caption); }
@@ -358,7 +352,10 @@
   .detail-card .md-body table.md th { text-align: left; font-weight: 600; color: var(--text-soft); border-bottom: 1px solid var(--track); padding: var(--space-2) var(--space-3) var(--space-2) 0; white-space: nowrap; }
   .detail-card .md-body table.md td { vertical-align: top; border-bottom: 1px solid var(--track); padding: var(--space-2) var(--space-3) var(--space-2) 0; }
   .detail-card .md-body table.md tr:last-child td { border-bottom: none; }
-  .detail-card .md-body table.md td:nth-child(3) { text-align: center; white-space: nowrap; }
+  /* Score is the last column and one digit wide; `width: 1%` under auto layout
+     collapses it to its content so the question text keeps the rest. */
+  .detail-card .md-body table.md th:last-child,
+  .detail-card .md-body table.md td:last-child { text-align: right; white-space: nowrap; width: 1%; }
 
   .btn {
     background: var(--surface); border: 1px solid var(--track); color: var(--text-soft);
@@ -455,10 +452,6 @@ function daysBetween(isoA, isoB) {
 
 // ---- Derive layer (ported from Python 1:1) --------------------------------
 
-function hasUpcoming(stages, today) {
-  return stages.some(s => (s.result || "").toLowerCase().startsWith("sched") || (s.date && s.date > today));
-}
-
 function lastContact(stages, applied_date) {
   const dates = stages.map(s => s.date).filter(Boolean);
   return dates.length ? dates.reduce((a, b) => a > b ? a : b) : (applied_date || null);
@@ -468,31 +461,16 @@ function daysSince(lastISO, today) {
   return lastISO ? daysBetween(lastISO, today) : null;
 }
 
-function isGhosted(status, stages, applied_date, today, ghostDays) {
-  if (status !== "active") return false;
-  if (hasUpcoming(stages, today)) return false;
-  const last = lastContact(stages, applied_date);
-  if (!last) return false;
-  return daysBetween(last, today) > ghostDays;
-}
-
-function needsUpdate(stages, today) {
-  return stages.some(s => !s.result && s.date && s.date <= today);
-}
-
-function deriveApp(raw, today, ghostDays) {
-  const upcoming = hasUpcoming(raw.stages, today);
-  const ghosted = isGhosted(raw.status, raw.stages, raw.applied_date, today, ghostDays);
-  const needs_update = needsUpdate(raw.stages, today);
+function deriveApp(raw, today) {
   const last_contact = lastContact(raw.stages, raw.applied_date);
   const days_since_contact = daysSince(last_contact, today);
-  return { ...raw, upcoming, ghosted, needs_update, last_contact, days_since_contact };
+  return { ...raw, last_contact, days_since_contact };
 }
 
 function computeMetrics(apps) {
   return {
     all: apps.length,
-    applied: apps.filter(a => a.applied && !a.ghosted).length,
+    applied: apps.filter(a => a.applied).length,
     active: apps.filter(a => a.status === "active").length,
     offers: apps.filter(a => a.status === "offer").length,
     rejected: apps.filter(a => a.status === "rejected").length,
@@ -552,7 +530,7 @@ function computeDaily(apps, today, window, target) {
 }
 
 function derive(raw, today) {
-  const apps = raw.apps.map(a => deriveApp(a, today, raw.ghost_days));
+  const apps = raw.apps.map(a => deriveApp(a, today));
   const metrics = computeMetrics(apps);
   const funnel = computeFunnel(apps, raw.phases);
   const daily = computeDaily(apps, today, raw.daily_window, raw.daily_target);
@@ -649,7 +627,7 @@ function stageClass(s) {
   const r = (s.result || "").toLowerCase();
   if (r.startsWith("pass")) return "passed";
   if (r.startsWith("fail")) return "failed";
-  if (r.startsWith("sched") || (s.date && s.date > TODAY)) return "upcoming";
+  if (r.startsWith("sched")) return "upcoming";
   return "pending";
 }
 
@@ -657,7 +635,7 @@ function stageClass(s) {
 // Each card carries its own predicate + which metric count to show.
 const FILTERS = [
   { key: "all",      label: "All",      cls: "m-all",      metric: "all",      test: () => true },
-  { key: "applied",  label: "Applied",  cls: "m-applied",  metric: "applied",  test: a => a.applied && !a.ghosted },
+  { key: "applied",  label: "Applied",  cls: "m-applied",  metric: "applied",  test: a => a.applied },
   { key: "active",   label: "Active",   cls: "m-active",   metric: "active",   test: a => a.status === "active" },
   { key: "offer",    label: "Offers",   cls: "m-offers",   metric: "offers",   test: a => a.status === "offer" },
   { key: "rejected", label: "Rejected", cls: "m-rejected", metric: "rejected", test: a => a.status === "rejected" },
@@ -788,20 +766,17 @@ function stackCell(stack) {
 }
 
 function rowHtml(a) {
-  const tags = (a.upcoming ? `<span class="badge tag-up">upcoming</span>` : "")
-             + (a.ghosted ? `<span class="badge tag-ghost">ghosted</span>` : "")
-             + (a.needs_update && !a.ghosted ? `<span class="badge tag-update">needs update</span>` : "");
-  const rowCls = (a.upcoming ? " row-upcoming" : (a.ghosted ? " row-ghosted" : ""))
-               + (a === openApp ? " is-selected" : "");
+  const rowCls = a === openApp ? "is-selected" : "";
   return `
-    <tr data-i="${DATA.indexOf(a)}" class="${rowCls.trim()}">
+    <tr data-i="${DATA.indexOf(a)}" class="${rowCls}">
       <td class="company-role">
         <div class="cr-company">${esc(a.company)}</div>
         <div class="cr-role">${esc(a.role) || "—"}</div>
       </td>
-      <td class="status-pipeline">${dualBadge(a.status, a.stages)}${tags}</td>
+      <td class="status-pipeline">${dualBadge(a.status, a.stages)}</td>
       <td class="lastcontact">${a.last_contact ? `${a.days_since_contact != null ? `<div class="lc-days" style="color:${a.days_since_contact >= 14 ? 'var(--warn-strong)' : 'var(--text)'}">${a.days_since_contact}д</div>` : ""}<div class="lc-date">${esc(a.last_contact)}</div>` : '<span class="muted">—</span>'}</td>
       <td class="salary">${incognito ? '<span class="muted">—</span>' : (a.salary_primary ? `<div class="sal-primary">${esc(salaryShort(a.salary_primary))}</div>` : '<span class="muted">—</span>')}</td>
+      <td class="seniority">${a.seniority ? esc(a.seniority) : '<span class="muted">—</span>'}</td>
       <td class="stack">${stackCell(a.stack_all)}</td>
     </tr>`;
 }
@@ -813,15 +788,12 @@ function render() {
     .join(" ").toLowerCase().includes(q);
 
   let rows = DATA.filter(a => f.test(a) && match(a));
-  rows.sort((x, y) => {
-    if (x.upcoming !== y.upcoming) return x.upcoming ? -1 : 1;
-    return (y.applied_date || "").localeCompare(x.applied_date || "");
-  });
+  rows.sort((x, y) => (y.applied_date || "").localeCompare(x.applied_date || ""));
 
   const body = rows.length
     ? `<table>
         <thead><tr>
-          <th>Company / Role</th><th>Pipeline / Status</th><th>Last contact</th><th>Salary asked</th><th>Stack</th>
+          <th>Company / Role</th><th>Pipeline / Status</th><th>Last contact</th><th>Salary asked</th><th>Seniority</th><th>Stack</th>
         </tr></thead>
         <tbody>${rows.map(rowHtml).join("")}</tbody>
       </table>`
@@ -844,47 +816,59 @@ function openDetail(a) {
     tr.classList.toggle("is-selected", +tr.dataset.i === i);
   });
 
-  // --- Tab buttons ---
-  const tabBtns = [`<button class="tab-btn active" data-tab="0">Application</button>`];
+  // --- Tab buttons: one per section (Decision log, ...), then one per stage ---
+  const tabBtns = a.sections.map((sec, i) =>
+    `<button class="tab-btn${i === 0 ? " active" : ""}" data-tab="${i}">${esc(sec.label)}</button>`
+  );
   a.stages.forEach((s, i) => {
     const cls = stageClass(s);
     tabBtns.push(
-      `<button class="tab-btn" data-tab="${i + 1}"><span class="dot ${cls}"></span>${esc(s.short || s.stage)}</button>`
+      `<button class="tab-btn" data-tab="${a.sections.length + i}"><span class="dot ${cls}"></span>${esc(s.short || s.stage)}</button>`
     );
   });
 
-  // --- Application panel (service block + full body) ---
-  const appPanel = `<div class="tab-panel active" data-panel="0">
-    <dl class="kv">
+  // --- Metadata block: pinned above the tab bar, so it stays visible across tabs ---
+  const metaBlock = `<dl class="kv">
       <dt>Stack</dt><dd>${esc((a.stack_all||[]).join(", ")) || "—"}</dd>
       <dt>Salary asked</dt><dd>${incognito ? "—" : (a.salary_primary ? esc(a.salary_primary) + (a.salary_original ? ` · ${esc(a.salary_original)}` : "") : "—")}</dd>
       ${!incognito && a.salary_note ? `<dt>Salary note</dt><dd>${esc(a.salary_note)}</dd>` : ""}
+      ${a.fit_score ? `<dt>Fit</dt><dd>${incognito ? "—" : `${esc(a.fit_score)}/10${a.fit_note ? ` · ${esc(a.fit_note)}` : ""}`}</dd>` : ""}
       <dt>Source</dt><dd>${a.source ? (/^https?:\/\//.test(a.source) ? `<a href="${esc(a.source)}" target="_blank" rel="noopener">${esc(a.source)}</a>` : esc(a.source)) : "—"}</dd>
       <dt>Applied</dt><dd>${esc(a.applied_date) || "—"}</dd>
       <dt>Last contact</dt><dd>${a.last_contact ? `${esc(a.last_contact)}${a.days_since_contact != null ? ` · ${a.days_since_contact}д` : ""}` : "—"}</dd>
       ${a.closed_date ? `<dt>Closed</dt><dd>${esc(a.closed_date)}</dd>` : ""}
-    </dl>
-    <div class="md-body">${a.body_html || "<p class=\"empty\">No content.</p>"}</div>
-  </div>`;
+    </dl>`;
+
+  // --- Section panels (Decision log, ...) ---
+  const sectionPanels = a.sections.map((sec, i) =>
+    `<div class="tab-panel${i === 0 ? " active" : ""}" data-panel="${i}">
+      <div class="md-body">${sec.html || "<p class=\"empty\">No content.</p>"}</div>
+    </div>`
+  ).join("");
 
   // --- Stage panels ---
   const stagePanels = a.stages.map((s, i) =>
-    `<div class="tab-panel" data-panel="${i + 1}">
+    `<div class="tab-panel" data-panel="${a.sections.length + i}">
       <div class="md-body">${s.body_html || "<p class=\"empty\">No content.</p>"}</div>
     </div>`
   ).join("");
+
+  // Seniority and location share the title's sub-line; the status badge moved
+  // to the top-right corner, so neither item can assume a badge precedes it.
+  const subLine = [a.seniority, a.location].filter(Boolean).map(esc).join(" · ");
 
   const detail = document.getElementById("detail");
   detail.innerHTML = `
     <div class="detail-head">
       <div>
         <h2>${esc(a.company)} — ${esc(a.role)}</h2>
-        <div class="sub">${statusBadge(a.status)} ${a.seniority ? "· " + esc(a.seniority) : ""} ${a.location ? "· " + esc(a.location) : ""}</div>
+        <div class="sub">${subLine}</div>
       </div>
-      <button class="close-btn" id="detailBack" title="Close (Esc)" aria-label="Close">×</button>
+      ${statusBadge(a.status)}
     </div>
+    ${metaBlock}
     <div class="tab-bar">${tabBtns.join("")}</div>
-    ${appPanel}
+    ${sectionPanels}
     ${stagePanels}`;
 
   // Tab switching logic
@@ -897,8 +881,6 @@ function openDetail(a) {
       detail.querySelector(`.tab-panel[data-panel="${idx}"]`).classList.add("active");
     });
   });
-
-  detail.querySelector("#detailBack").addEventListener("click", clearDetail);
 
   document.getElementById("detailOverlay").hidden = false;
   detail.scrollTop = 0;
