@@ -67,7 +67,9 @@ Access.
 - **Data** — `./src/deploy-data.sh`, which overwrites the KV key in place.
 - `job-record` runs generate + deploy-data after every vault write. Locally, the
   `career-dashboard` zsh function does the same and opens the hosted page;
-  `career-dashboard-local` runs `wrangler dev` against a local KV copy.
+  `career-dashboard-local` runs `wrangler dev` against a local KV copy. Both are
+  defined in `src/career.zsh` (sourced from `~/.zshrc`), so the commands are
+  versioned with the pipeline they drive.
 
 ## First-time setup, per machine
 
