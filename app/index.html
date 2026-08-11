@@ -253,10 +253,9 @@
   tbody tr { border-bottom: 1px solid var(--track); cursor: pointer; transition: background .12s; }
   tbody tr:hover { background: var(--surface-soft); }
   tbody tr.is-selected { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
-  tbody td { padding: var(--space-2) var(--space-3); vertical-align: middle; }
-  .company-role { line-height: 1.25; }
+  tbody td { padding: var(--space-1) var(--space-3); vertical-align: middle; }
   .cr-company { font-weight: 600; color: var(--text); }
-  .cr-role { font-size: var(--fs-caption); color: var(--text-soft); margin-top: 2px; }
+  .cr-role { font-size: var(--fs-caption); color: var(--text-soft); }
   /* Stack chips: outlined, wrapping within the cell. */
   .stack-chips { display: flex; flex-wrap: wrap; gap: 4px; }
   .chip {
@@ -269,9 +268,10 @@
   .sal-primary { color: var(--text); }
   /* Seniority: short enum, never wraps, stays a narrow column next to the wider ones. */
   .seniority { white-space: nowrap; }
-  /* Last contact: days-since on top (amber when stale), exact date muted below. */
-  .lastcontact { line-height: 1.25; }
-  .lc-date { font-size: var(--fs-caption); color: var(--text-soft); margin-top: 2px; }
+  /* Last contact: days-since (amber when stale) and the exact date on one line. */
+  .lastcontact { white-space: nowrap; }
+  .lc-days { font-weight: 600; }
+  .lc-date { font-size: var(--fs-caption); color: var(--text-soft); }
   .status-pipeline { white-space: nowrap; }
   .muted { color: var(--text-faint); }
   .badge { display: inline-block; padding: 2px var(--space-2); border-radius: 6px; font-size: var(--fs-caption); font-weight: 500; }
@@ -769,12 +769,10 @@ function rowHtml(a) {
   const rowCls = a === openApp ? "is-selected" : "";
   return `
     <tr data-i="${DATA.indexOf(a)}" class="${rowCls}">
-      <td class="company-role">
-        <div class="cr-company">${esc(a.company)}</div>
-        <div class="cr-role">${esc(a.role) || "—"}</div>
-      </td>
+      <td class="cr-company">${esc(a.company)}</td>
+      <td class="cr-role">${esc(a.role) || "—"}</td>
       <td class="status-pipeline">${dualBadge(a.status, a.stages)}</td>
-      <td class="lastcontact">${a.last_contact ? `${a.days_since_contact != null ? `<div class="lc-days" style="color:${a.days_since_contact >= 14 ? 'var(--warn-strong)' : 'var(--text)'}">${a.days_since_contact}д</div>` : ""}<div class="lc-date">${esc(a.last_contact)}</div>` : '<span class="muted">—</span>'}</td>
+      <td class="lastcontact">${a.last_contact ? `${a.days_since_contact != null ? `<span class="lc-days" style="color:${a.days_since_contact >= 14 ? 'var(--warn-strong)' : 'var(--text)'}">${a.days_since_contact}д</span> ` : ""}<span class="lc-date">${esc(a.last_contact)}</span>` : '<span class="muted">—</span>'}</td>
       <td class="salary">${incognito ? '<span class="muted">—</span>' : (a.salary_primary ? `<div class="sal-primary">${esc(salaryShort(a.salary_primary))}</div>` : '<span class="muted">—</span>')}</td>
       <td class="seniority">${a.seniority ? esc(a.seniority) : '<span class="muted">—</span>'}</td>
       <td class="stack">${stackCell(a.stack_all)}</td>
@@ -793,7 +791,7 @@ function render() {
   const body = rows.length
     ? `<table>
         <thead><tr>
-          <th>Company / Role</th><th>Pipeline / Status</th><th>Last contact</th><th>Salary asked</th><th>Seniority</th><th>Stack</th>
+          <th>Company</th><th>Role</th><th>Pipeline / Status</th><th>Last contact</th><th>Salary asked</th><th>Seniority</th><th>Stack</th>
         </tr></thead>
         <tbody>${rows.map(rowHtml).join("")}</tbody>
       </table>`
