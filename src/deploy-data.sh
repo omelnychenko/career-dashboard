@@ -17,11 +17,22 @@ fi
 # --remote is what makes this hit the real namespace; without it wrangler
 # writes to a local simulation and reports success while the dashboard sees
 # nothing.
-npx --yes wrangler kv key put payload \
-  --path "$ROOT/payload.json" \
-  --binding DATA \
-  --remote \
-  --config "$ROOT/wrangler.toml"
+put_payload() {
+  npx --yes wrangler kv key put payload \
+    --path "$ROOT/payload.json" \
+    --binding DATA \
+    --remote \
+    --config "$ROOT/wrangler.toml"
+}
+
+# One retry: a just-refreshed OAuth token takes a few seconds to propagate to
+# the API, and the first write can land inside that window as a 401. A second
+# failure is a real problem and stops the script with wrangler's own error.
+if ! put_payload; then
+  echo "First put failed — retrying in 3s..." >&2
+  sleep 3
+  put_payload
+fi
 
 echo
 echo "Dashboard: https://career.omnilab.workers.dev/"
