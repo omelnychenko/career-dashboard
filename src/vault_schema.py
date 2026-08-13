@@ -43,8 +43,10 @@ STAGE_PHASES = ("Screening", "Tech", "Final")
 STAGE_RESULTS = ("scheduled", "passed", "failed")
 
 SALARY_PERIODS = ("month", "hour", "year")
-# Constrained to what normalize_salary() has a conversion rate for.
-SALARY_CURRENCIES = ("EUR", "USD", "GBP")
+# These currencies have a stable dashboard conversion to EUR/month. Every
+# application still preserves its authored three-letter currency code.
+SALARY_CONVERTIBLE_CURRENCIES = ("EUR", "USD", "GBP")
+CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
 
 # Question scores in a stage table, on the `Knowledge base/_Skills.md` scale.
 SCORE_MIN, SCORE_MAX = 1, 5

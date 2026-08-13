@@ -773,7 +773,7 @@ function rowHtml(a) {
       <td class="cr-role">${esc(a.role) || "—"}</td>
       <td class="status-pipeline">${dualBadge(a.status, a.stages)}</td>
       <td class="lastcontact">${a.last_contact ? `${a.days_since_contact != null ? `<span class="lc-days" style="color:${a.days_since_contact >= 14 ? 'var(--warn-strong)' : 'var(--text)'}">${a.days_since_contact}д</span> ` : ""}<span class="lc-date">${esc(a.last_contact)}</span>` : '<span class="muted">—</span>'}</td>
-      <td class="salary">${incognito ? '<span class="muted">—</span>' : (a.salary_primary ? `<div class="sal-primary">${esc(salaryShort(a.salary_primary))}</div>` : '<span class="muted">—</span>')}</td>
+      <td class="salary">${incognito ? '<span class="muted">—</span>' : ((a.salary_primary || a.salary_original) ? `<div class="sal-primary">${esc(salaryShort(a.salary_primary || a.salary_original))}</div>` : '<span class="muted">—</span>')}</td>
       <td class="seniority">${a.seniority ? esc(a.seniority) : '<span class="muted">—</span>'}</td>
       <td class="stack">${stackCell(a.stack_all)}</td>
     </tr>`;
@@ -828,7 +828,7 @@ function openDetail(a) {
   // --- Metadata block: pinned above the tab bar, so it stays visible across tabs ---
   const metaBlock = `<dl class="kv">
       <dt>Stack</dt><dd>${esc((a.stack_all||[]).join(", ")) || "—"}</dd>
-      <dt>Salary asked</dt><dd>${incognito ? "—" : (a.salary_primary ? esc(a.salary_primary) + (a.salary_original ? ` · ${esc(a.salary_original)}` : "") : "—")}</dd>
+      <dt>Salary asked</dt><dd>${incognito ? "—" : (a.salary_primary ? esc(a.salary_primary) + (a.salary_original ? ` · ${esc(a.salary_original)}` : "") : (a.salary_original ? esc(a.salary_original) : "—"))}</dd>
       ${!incognito && a.salary_note ? `<dt>Salary note</dt><dd>${esc(a.salary_note)}</dd>` : ""}
       ${a.fit_score ? `<dt>Fit</dt><dd>${incognito ? "—" : `${esc(a.fit_score)}/10${a.fit_note ? ` · ${esc(a.fit_note)}` : ""}`}</dd>` : ""}
       <dt>Source</dt><dd>${a.source ? (/^https?:\/\//.test(a.source) ? `<a href="${esc(a.source)}" target="_blank" rel="noopener">${esc(a.source)}</a>` : esc(a.source)) : "—"}</dd>

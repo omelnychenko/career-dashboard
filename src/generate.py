@@ -23,7 +23,7 @@ import re
 from pathlib import Path
 
 from vault_schema import (
-    COMPANIES, SALARY_CURRENCIES, STAGE_PHASES, STAGE_RESULTS, STATUS,
+    COMPANIES, SALARY_CONVERTIBLE_CURRENCIES, STAGE_PHASES, STAGE_RESULTS, STATUS,
     Heading, application_files, children_of, is_table_divider, parse_headings,
     parse_stage_entry, read, split_frontmatter, split_row,
 )
@@ -82,10 +82,18 @@ def normalize_salary(amount, period, currency) -> tuple:
     period = (period or "").strip().lower()
     currency = (currency or "").strip().upper()
 
-    # Without a rate the amount would be labelled € unconverted, turning e.g.
-    # 5000 PLN into "€5K/mo" with the real currency nowhere in the payload.
-    if currency and currency not in SALARY_CURRENCIES:
-        raise SystemExit(f"No conversion rate for {currency} — add one to generate.py.")
+    cur_prefix = {"EUR": "€", "USD": "$", "GBP": "£"}.get(currency, f"{currency} " if currency else "")
+    period_sfx = {"month": "/mo", "hour": "/h", "year": "/yr"}.get(period, "")
+    if amt >= 1000:
+        amt_str = f"{amt/1000:g}K"
+    else:
+        amt_str = f"{amt:g}"
+    original = f"{cur_prefix}{amt_str}{period_sfx}"
+
+    # Preserve unsupported currencies exactly as submitted. The UI displays
+    # `salary_original` when there is no trustworthy EUR/month conversion.
+    if currency and currency not in SALARY_CONVERTIBLE_CURRENCIES:
+        return ("", original)
 
     eur_month = amt
     if currency == "USD":
@@ -104,14 +112,6 @@ def normalize_salary(amount, period, currency) -> tuple:
         primary = f"€{k_str}K/mo"
     else:
         primary = f"€{eur_month:g}/mo"
-
-    cur_sym = {"EUR": "€", "USD": "$", "GBP": "£"}.get(currency, "€")
-    period_sfx = {"month": "/mo", "hour": "/h", "year": "/yr"}.get(period, "")
-    if amt >= 1000:
-        amt_str = f"{amt/1000:g}K"
-    else:
-        amt_str = f"{amt:g}"
-    original = f"{cur_sym}{amt_str}{period_sfx}"
 
     if original == primary:
         original = ""

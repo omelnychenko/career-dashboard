@@ -21,11 +21,11 @@ from pathlib import Path
 
 from vault_schema import (
     APPLICATION_KEYS,
+    CURRENCY_RE,
     DATE_RE,
     FIT_MAX,
     FIT_MIN,
     Heading,
-    SALARY_CURRENCIES,
     SALARY_PERIODS,
     SCORE_MAX,
     SCORE_MIN,
@@ -110,6 +110,16 @@ def check_number(key: str, value, line, *, low=None, high=None, max_decimals=Non
             ]
     if low is not None and not (low <= float(value) <= high):
         return [f"{where}{key}: {value} is outside {low}–{high}"]
+    return []
+
+
+def check_currency(value, line) -> list[str]:
+    """An optional uppercase three-letter currency code."""
+    where = f"line {line}: " if line else "frontmatter: "
+    if value == "":
+        return []
+    if isinstance(value, list) or not CURRENCY_RE.fullmatch(str(value)):
+        return [f"{where}salary_currency: '{value}' is not a three-letter uppercase currency code"]
     return []
 
 
@@ -470,9 +480,7 @@ def validate(path: Path) -> list[str]:
         out += check_enum("salary_period", fm.get("salary_period", ""),
                           SALARY_PERIODS, line.get("salary_period"),
                           allow_empty=True)
-        out += check_enum("salary_currency", fm.get("salary_currency", ""),
-                          SALARY_CURRENCIES, line.get("salary_currency"),
-                          allow_empty=True)
+        out += check_currency(fm.get("salary_currency", ""), line.get("salary_currency"))
 
         if "company" in raw:
             out += check_wiki_link("company", raw["company"],

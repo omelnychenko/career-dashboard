@@ -5,7 +5,8 @@
 ```
 app/         → static files the Worker serves. Public: put nothing here that isn't.
 src/         → the Worker, the generator, the vault validators, the two deploy scripts.
-tests/       → test_validators.py — the fixture suite behind the validators.
+tests/       → test_validators.py, the fixture suite behind the validators, and
+               test_salary_normalization.py, which pins the generator's salary output.
 payload.json → generated, gitignored, pushed to KV rather than committed.
 ```
 
@@ -14,6 +15,12 @@ per defect, each the valid base with a single mutation, and asserts both the
 expected message and the violation count — a defect caught by the wrong rule
 fails. Run it after touching a validator: the vault sweep passing proves
 nothing on its own, since a rule that stopped firing also passes.
+
+`python3 tests/test_salary_normalization.py` covers the other half — what
+`normalize_salary()` returns. A currency outside the convertible set keeps its
+authored amount as `salary_original` with an empty `salary_primary`, so the
+dashboard shows the real figure rather than a EUR number nobody quoted. Run it
+after touching a rate or the currency rules.
 
 Inside `src/`, `vault_schema.py` is the single definition of the vault's shape —
 every enum, the frontmatter parser, the heading walker. Both halves import it:
