@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Checks the three vault validators share.
+"""Checks the two vault validators share.
 
 `vault_schema.py` describes the shape and is read by the generator too; this
 module is validation-only — it turns a shape mismatch into a sentence an author
@@ -24,7 +24,9 @@ from vault_schema import (
     non_empty,
     parse_headings,
     read,
+    sanitize_name_part,
     split_frontmatter,
+    unquote,
 )
 
 
@@ -201,28 +203,68 @@ def check_bullet_list(h: Heading, off: int, ctx: str, *, allow_empty=False) -> l
 WIKI_LINK_RE = re.compile(r'^"\[\[.+\]\]"$')
 
 
-def check_wiki_link(key: str, raw: str, line) -> list[str]:
-    """A set link field is a quoted wiki-link: `key: "[[Target]]"`. Empty is
-    allowed; anything else breaks Obsidian's backlink graph."""
-    if raw == "":
-        return []
-    if WIKI_LINK_RE.match(raw):
-        return []
+def check_company_ref(raw: str, line, *, card_exists: bool) -> list[str]:
+    """`company:` is a wiki-link exactly when that company has a card.
+
+    Which of the two forms is legal is not a matter of taste — the vault
+    decides it, which is why the answer arrives as `card_exists` rather than
+    being read out of the field itself. A link to a company with no card
+    resolves to nothing: Obsidian still renders it, clicking it offers to
+    create the note, and the backlink the link was written for never exists.
+    Bare text beside a card that does exist is the same loss from the other
+    side — the card is there and none of its applications points at it. Both
+    look right in the editor, which is why they are caught here.
+    """
     where = f"line {line}: " if line else "frontmatter: "
-    return [
-        f'{where}{key}: {raw} — a set {key} is a quoted wiki-link, e.g. '
-        f'{key}: "[[Target Name]]"'
-    ]
+    if raw == "":
+        return [f"{where}company: is empty — required, the company name"]
+    # The card is filed under the sanitized name, so the link has to target
+    # that and not the name as authored: a company whose name carries a `/` or
+    # a `:` has a card those characters never reach, and a link written from
+    # the raw value would point past it at a note that does not exist.
+    name = unquote(raw)
+    stem = sanitize_name_part(name)
+    card = f"Companies/{stem}.md"
+    # Brackets, not the quoted-link pattern, decide whether a link was meant:
+    # `[[Acme]]` without its quotes is still an author writing a link, and
+    # reading it as bare text would let a dangling one stand.
+    if "[[" in raw or "]]" in raw:
+        if not card_exists:
+            return [
+                f"{where}company: {raw} — there is no {card}, so the link "
+                f"resolves to nothing; write the name bare: company: {name}"
+            ]
+        if not WIKI_LINK_RE.match(raw):
+            return [
+                f"{where}company: {raw} — a link is quoted, or the brackets "
+                f'read as a list: company: "[[{stem}]]"'
+            ]
+        if name != stem:
+            return [
+                f"{where}company: {raw} — the card is {card}, so that is what "
+                f'the link targets: company: "[[{stem}]]"'
+            ]
+        return []
+    if card_exists:
+        return [
+            f"{where}company: {raw} — {card} exists, so the field links it: "
+            f'company: "[[{stem}]]"'
+        ]
+    return []
 
 
-# --- The About-note shape, shared by Company and Person ---------------------
+# --- The About-note shape --------------------------------------------------
 
 
 def validate_note(
     path: Path, entity: str, keys, label: str
 ) -> tuple[list[str], list[tuple[str, int, str]]]:
-    """Company and Person are one schema with two key sets: one H1 equal to the
-    file stem, one `## About` holding an unordered list, nothing deeper.
+    """The shape of an About note: one H1 equal to the file stem, one
+    `## About` holding an unordered list, nothing deeper.
+
+    The entity name, its key set and the noun the messages use are arguments
+    because this is the shape and not the schema — everything specific to one
+    kind of note stays with that note's validator.
 
     Returns the violations and the parsed frontmatter entries, so a caller can
     add its own field rules without walking the frontmatter a third time.

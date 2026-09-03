@@ -20,14 +20,14 @@ VAULT = Path(
     "/Users/omelnychenko/Library/Mobile Documents/iCloud~md~obsidian/Documents"
     "/Life/Career"
 )
+APPLICATIONS = VAULT / "Applications"
 COMPANIES = VAULT / "Companies"
-PEOPLE = VAULT / "People"
 TEMPLATES = VAULT / "_templates"
 
 
 # --- Enums -----------------------------------------------------------------
 
-ENTITY_TYPES = ("application", "company", "person")
+ENTITY_TYPES = ("application", "company")
 
 # Fork postings collapse to the lower level: the label inflates, the
 # requirements do not.
@@ -57,10 +57,6 @@ FIT_MIN, FIT_MAX = 1, 10
 # the schema: a file that reads differently top to bottom is harder to scan
 # against its siblings, and the diff of a reordered file hides the real change.
 COMPANY_KEYS = ("type", "name", "website", "location", "industry")
-PERSON_KEYS = (
-    "type", "name", "role", "current_company",
-    "linkedin", "email", "phone", "telegram",
-)
 APPLICATION_KEYS = (
     "type", "company", "role", "seniority", "stack", "source",
     "applied_date", "status", "stages",
@@ -69,6 +65,135 @@ APPLICATION_KEYS = (
 )
 
 DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+# --- Names -----------------------------------------------------------------
+
+# An application filename is `<company> • <role> • <date>.md`. The separator is
+# a bullet with a space on each side: it reads as punctuation, it is legal in a
+# filename everywhere the vault syncs, and it is rare enough in a company or a
+# role that sanitizing it away costs nothing.
+NAME_SEP = " • "
+# Stem length cap, chosen well under the 255-byte limit of the filesystems the
+# vault crosses — the same name has to survive iCloud, git and a zip.
+NAME_MAX = 180
+# Contract artifacts live in `Companies/_docs/<Company>/`. The leading
+# underscore sorts them away from the cards and marks the folder as machinery,
+# the way `_templates` does.
+DOCS_DIRNAME = "_docs"
+
+# Obsidian-hostile characters plus the separator itself.
+_NAME_BAD = set('/\\:|#^[]•?*"<>')
+
+
+def sanitize_name_part(s: str) -> str:
+    """One field of an application filename, made safe to write and to read back.
+
+    Two rules in one pass. The first is about the outside world: `/`, `\\`, `:`
+    and the link-syntax characters either cannot appear in a filename or break
+    the `[[...]]` parser that reads one. The second is about this schema — the
+    separator is in the replaced set, so no field can carry one, and a name
+    built out of sanitized parts therefore splits back into exactly three
+    fields and no other number. That round trip is what lets the filename be a
+    record of company, role and date rather than only a label for one.
+
+    Control characters become a space rather than a dash because they stand
+    where a space was meant; whitespace runs then collapse. Leading and
+    trailing `-`, `.` and whitespace go last: a name starting with a dot is
+    hidden, and one ending in a dot or a space is silently stored under a
+    different name by some filesystems than the one that was asked for.
+    """
+    out = []
+    for ch in str(s):
+        if ch in _NAME_BAD:
+            out.append("-")
+        elif ord(ch) < 32:
+            out.append(" ")
+        else:
+            out.append(ch)
+    return re.sub(r"\s+", " ", "".join(out)).strip(" -.")
+
+
+def application_filename(company: str, role: str, applied_date: str) -> str:
+    """`<Company> • <Role> • <YYYY-MM-DD>.md` — the whole identity of a card.
+
+    Nothing stores this name. The validator recomputes it from the frontmatter
+    and compares, so a card whose fields are edited without a rename reports
+    itself instead of quietly disagreeing with its own contents. That only
+    holds while the function is deterministic: the same three fields in, the
+    same name out — no clock, no counter, no disambiguating suffix. Two
+    applications to one company on one day with one role title are the same
+    application, and collapsing onto the same name is the right answer.
+
+    `applied_date` goes in verbatim; it is ISO by the time it arrives, and
+    sanitizing it could only hide a malformed date the validator wants to see.
+    Over `NAME_MAX` the role is what gives — it is the field that can run long,
+    and cutting the company or the date would break both the name sort and the
+    split back into fields. That is a cap on the role, not a guarantee about the
+    stem: a company long enough to blow the budget on its own leaves the role
+    empty and the name still over, because the alternative is a card no longer
+    filed under its own company. A company name that long is a frontmatter
+    problem, and it is visible as one.
+    """
+    c = sanitize_name_part(company)
+    r = sanitize_name_part(role)
+    stem = f"{c}{NAME_SEP}{r}{NAME_SEP}{applied_date}"
+    if len(stem) > NAME_MAX:
+        keep = len(r) - (len(stem) - NAME_MAX)
+        # A cut lands mid-word as often as not, and the leftover space or
+        # hyphen would then read as a typo rather than as a truncation.
+        r = r[: max(keep, 0)].rstrip(" -")
+        stem = f"{c}{NAME_SEP}{r}{NAME_SEP}{applied_date}"
+    return f"{stem}.md"
+
+
+def split_application_stem(stem: str) -> tuple[str, str, str] | None:
+    """`(company, role, date)` out of a name, or None when it is not one.
+
+    Exactly three parts and the third a date, or nothing. The strictness is the
+    point: this is how a reader recovers the fields when the frontmatter is
+    missing or empty, and half-reading a name that was never built by
+    `application_filename()` would invent a company out of whatever sat before
+    the first bullet. Sanitization keeps the separator out of every field, so a
+    well-formed name splits into three parts and a name that splits into some
+    other number is by construction not one of ours.
+    """
+    parts = stem.split(NAME_SEP)
+    if len(parts) != 3 or not DATE_RE.match(parts[2]):
+        return None
+    return parts[0], parts[1], parts[2]
+
+
+def company_dir_for(app_path: Path) -> Path:
+    """The `Companies/` folder that governs `app_path`.
+
+    Resolved from the file rather than from the module-level `VAULT`, because a
+    validator judges whatever file it is handed: a fixture written into a temp
+    directory has its own sibling `Companies/`, and answering out of the vault
+    constant would judge that fixture against the real vault — passing or
+    failing it on cards it does not own.
+
+    `resolve()` first, so the answer comes from where the file sits and not from
+    how it was typed. A path given relative to the shell — a bare filename, or
+    one starting `./` — otherwise walks two levels up from nothing and looks for
+    `Companies/` beside the caller's working directory, which is how the same
+    file validates differently depending on which folder the command ran in.
+    """
+    return app_path.resolve().parent.parent / "Companies"
+
+
+def company_card_exists(app_path: Path, company: str) -> bool:
+    """Whether this company has earned a card in the vault `app_path` lives in.
+
+    Decides which of the two legal forms of `company:` the field must take, so
+    it asks the filesystem rather than the frontmatter. The name goes through
+    `sanitize_name_part()` because the card is filed under the sanitized name
+    too — the raw value would miss the card of any company whose name carries a
+    `:` or a `/`.
+    """
+    return (
+        company_dir_for(app_path) / f"{sanitize_name_part(company)}.md"
+    ).is_file()
 
 
 # --- Frontmatter -----------------------------------------------------------
@@ -325,19 +450,22 @@ def parse_stage_entry(entry: str) -> dict | None:
 # --- File discovery --------------------------------------------------------
 
 def company_card_files() -> list[Path]:
-    """`Companies/<Company>/<Company>.md` — named after its folder so
-    `[[Company]]` resolves."""
-    return sorted(f for f in COMPANIES.glob("*/*.md") if f.stem == f.parent.name)
+    """`Companies/<Company>.md` — flat, named so `[[Company]]` resolves.
+
+    The glob does not recurse, which is what keeps `Companies/_docs/` out of
+    the sweep: the contract artifacts filed under it are not notes, have no
+    frontmatter, and would fail every validator they were handed to.
+    """
+    return sorted(COMPANIES.glob("*.md"))
 
 
 def application_files() -> list[Path]:
-    """Every `Companies/<Company>/<date — Role>.md` — the company card
-    excluded by the folder-name rule rather than by its `type:`."""
-    return sorted(f for f in COMPANIES.glob("*/*.md") if f.stem != f.parent.name)
+    """Every `Applications/<Company> • <Role> • <YYYY-MM-DD>.md`.
 
-
-def person_files() -> list[Path]:
-    return sorted(PEOPLE.glob("*.md"))
+    One flat folder, so the sweep is the glob itself — there is no company card
+    sitting among these files to exclude, and nothing to recurse into.
+    """
+    return sorted(APPLICATIONS.glob("*.md"))
 
 
 def read(path: Path) -> str:

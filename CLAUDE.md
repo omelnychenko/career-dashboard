@@ -10,11 +10,14 @@ tests/       → test_validators.py, the fixture suite behind the validators, an
 payload.json → generated, gitignored, pushed to KV rather than committed.
 ```
 
-`python3 tests/test_validators.py` builds one valid fixture per entity plus one
-per defect, each the valid base with a single mutation, and asserts both the
-expected message and the violation count — a defect caught by the wrong rule
-fails. Run it after touching a validator: the vault sweep passing proves
-nothing on its own, since a rule that stopped firing also passes.
+`python3 tests/test_validators.py` builds one valid fixture per entity —
+application and company — plus one per defect, each the valid base with a
+single mutation, and asserts both the expected message and the violation count:
+a defect caught by the wrong rule fails. Each case gets its own `Applications/`
+and `Companies/` to sit in, so a rule that judges a file by what stands beside
+it in the vault is exercised by writing that other file rather than by bending
+the file under test. Run it after touching a validator: the vault sweep passing
+proves nothing on its own, since a rule that stopped firing also passes.
 
 `python3 tests/test_salary_normalization.py` covers the other half — what
 `normalize_salary()` returns. A currency outside the convertible set keeps its

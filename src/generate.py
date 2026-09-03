@@ -23,9 +23,10 @@ import re
 from pathlib import Path
 
 from vault_schema import (
-    COMPANIES, SALARY_CONVERTIBLE_CURRENCIES, STAGE_PHASES, STAGE_RESULTS, STATUS,
-    Heading, application_files, children_of, is_table_divider, parse_headings,
-    parse_stage_entry, read, split_frontmatter, split_row,
+    APPLICATIONS, SALARY_CONVERTIBLE_CURRENCIES, STAGE_PHASES, STAGE_RESULTS,
+    STATUS, Heading, application_files, children_of, is_table_divider,
+    parse_headings, parse_stage_entry, read, split_application_stem,
+    split_frontmatter, split_row,
 )
 
 # --- Paths -----------------------------------------------------------------
@@ -377,18 +378,14 @@ def load_applications() -> tuple[list[dict], list[str]]:
     for app_md in application_files():
         fm, body = split_frontmatter(read(app_md))
         if str(fm.get("type", "")).strip().lower() != "application":
-            skipped.append(
-                f"{app_md.parent.name}/{app_md.name}: type={fm.get('type')!r}"
-            )
+            skipped.append(f"{app_md.name}: type={fm.get('type')!r}")
             continue
         stages, sections, body_errors = load_body(fm, body)
         # One entry per unreadable file, not per problem, so the count in the
         # abort message is a count of files and every problem still names the
         # string it choked on.
         if body_errors:
-            skipped.append(
-                f"{app_md.parent.name}/{app_md.name}: " + "; ".join(body_errors)
-            )
+            skipped.append(f"{app_md.name}: " + "; ".join(body_errors))
             continue
         norm = {k: fm.get(k, "") for k in APP_FIELDS}
         salary_primary, salary_original = normalize_salary(
@@ -396,9 +393,14 @@ def load_applications() -> tuple[list[dict], list[str]]:
         )
         status = derive_status(fm)
         applied_date = str(norm["applied_date"])
+        # The filename was built out of the same company the frontmatter
+        # carries, so it is where an empty `company:` is recovered from — and
+        # only when the name splits back into its three fields, since a name
+        # that does not is not one this vault wrote and guessing a company out
+        # of whatever sits before its first bullet would invent one.
+        from_name = split_application_stem(app_md.stem)
         apps.append({
-            # The company folder is authoritative when frontmatter omits it.
-            "company": norm["company"] or app_md.parent.name,
+            "company": norm["company"] or (from_name[0] if from_name else ""),
             "role": norm["role"],
             "stack_main": first_stack(norm["stack"]),
             "stack_all": norm["stack"] if isinstance(norm["stack"], list) else [norm["stack"]] if norm["stack"] else [],
@@ -431,8 +433,8 @@ def main() -> None:
     # this guard and the empty-payload one below, a moved folder overwrites the
     # payload with an empty one and the deploy ships it — the dashboard goes
     # blank with exit code 0.
-    if not COMPANIES.is_dir():
-        raise SystemExit(f"Vault not found: {COMPANIES}")
+    if not APPLICATIONS.is_dir():
+        raise SystemExit(f"Vault not found: {APPLICATIONS}")
     apps, skipped = load_applications()
     # A card the vault holds but this run could not read is indistinguishable from
     # one that was never written: the payload is simply shorter, and every later

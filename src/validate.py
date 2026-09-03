@@ -7,13 +7,12 @@
 Exit 0 when everything is clean, 1 when anything is not — the write pipeline
 branches on that, so a violation must never come back as a success.
 
-Whole-vault mode dispatches by where a file sits: the note named after its
-folder is the company card, its siblings are applications, `People/*.md` are
-people. Structure decides, not `type:` — dispatching on the field a file
-declares would let a company card carrying `type: application` be checked
-against the wrong schema and pass. Named-path mode has no such structure to go
-on and dispatches on `type:`, where an unknown or missing value is itself the
-violation.
+Whole-vault mode dispatches by where a file sits: `Companies/*.md` are company
+cards, `Applications/*.md` are applications. Structure decides, not `type:` —
+dispatching on the field a file declares would let a company card carrying
+`type: application` be checked against the wrong schema and pass. Named-path
+mode has no such structure to go on and dispatches on `type:`, where an unknown
+or missing value is itself the violation.
 
 `_templates/` is never swept: the templates carry placeholders and guidance
 comments that are correct there and a violation anywhere else.
@@ -29,12 +28,12 @@ from pathlib import Path
 
 import validate_application
 import validate_company
-import validate_person
 from vault_schema import (
+    APPLICATIONS,
+    COMPANIES,
     ENTITY_TYPES,
     application_files,
     company_card_files,
-    person_files,
     read,
     split_frontmatter,
 )
@@ -42,14 +41,12 @@ from vault_schema import (
 VALIDATORS = {
     "application": validate_application.validate,
     "company": validate_company.validate,
-    "person": validate_person.validate,
 }
 
 # (type, singular, plural) in the order the summary line names them.
 ENTITY_LABELS = (
     ("company", "company", "companies"),
     ("application", "application", "applications"),
-    ("person", "person", "people"),
 )
 
 
@@ -63,7 +60,6 @@ def vault_jobs() -> list[tuple[str, Path]]:
     for entity, files in (
         ("company", company_card_files()),
         ("application", application_files()),
-        ("person", person_files()),
     ):
         jobs += [(entity, p) for p in files if not is_template(p)]
     return jobs
@@ -112,7 +108,23 @@ def main(argv: list[str]) -> int:
     if argv:
         jobs: list[tuple[str | None, Path]] = [(None, Path(a)) for a in argv]
     else:
+        # A glob over a folder that is not there returns nothing rather than
+        # raising, so without this the gate answers "no violations" loudest
+        # exactly when it has looked at nothing — a renamed folder, a vault
+        # moved out from under the constant, a sync that has not landed. The
+        # sweep is what stands in front of every write to a vault with no undo;
+        # it has to fail when it cannot see the vault, not pass.
+        for folder in (COMPANIES, APPLICATIONS):
+            if not folder.is_dir():
+                print(f"Vault folder not found: {folder}")
+                return 1
         jobs = list(vault_jobs())
+        if not jobs:
+            print(
+                f"Refusing to report a clean sweep of an empty vault — no "
+                f"notes under {COMPANIES} or {APPLICATIONS}."
+            )
+            return 1
 
     passed: Counter = Counter()
     failures: list[tuple[Path, list[str]]] = []

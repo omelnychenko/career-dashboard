@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Application validator — `Companies/<Company>/<YYYY-MM-DD — Role>.md`.
+"""Application validator — `Applications/<Company> • <Role> • <YYYY-MM-DD>.md`.
 
 The load-bearing rule is the one-to-one pairing between `stages:` entries and
 stage H2s: the dashboard matches a write-up to its entry by exact string, so a
@@ -7,8 +7,8 @@ single character of drift loses the section. That pairing is checked in both
 directions and reported as two different failures, because an entry with no
 section and a section with no entry are two different edits.
 
-Frontmatter and heading primitives come from `validate_company` — see the note
-at the top of that module for why they live there.
+Frontmatter and heading primitives come from `validate_common` — a check more
+than one schema makes lives there, so the two schemas cannot drift apart on it.
 
 Stdlib only.
 """
@@ -16,6 +16,7 @@ Stdlib only.
 from __future__ import annotations
 
 import re
+import unicodedata
 from collections import Counter
 from pathlib import Path
 
@@ -26,6 +27,7 @@ from vault_schema import (
     FIT_MAX,
     FIT_MIN,
     Heading,
+    NAME_SEP,
     SALARY_PERIODS,
     SCORE_MAX,
     SCORE_MIN,
@@ -34,8 +36,10 @@ from vault_schema import (
     STAGE_RESULTS,
     STATUS,
     TERMINAL_STATUS,
+    application_filename,
     body_offset,
     children_of,
+    company_card_exists,
     fm_entries,
     has_frontmatter,
     is_bullet,
@@ -45,9 +49,11 @@ from vault_schema import (
     read,
     split_row,
     split_frontmatter,
+    unquote,
 )
 from validate_common import (
     check_bullet_list,
+    check_company_ref,
     check_enum,
     check_frontmatter_keys,
     check_h1_content,
@@ -55,7 +61,6 @@ from validate_common import (
     check_no_html_comments,
     check_preamble,
     check_single_h1,
-    check_wiki_link,
     first_lines,
     fmt,
     missing_frontmatter,
@@ -70,6 +75,14 @@ INT_RE = re.compile(r"\d+")
 BOLD_LABEL_RE = re.compile(r"\*\*.+\*\*")
 MD_LINK_RE = re.compile(r"\[.*\]\(.*\)")
 URL_RE = re.compile(r"https?://")
+
+# A decision-log entry: the bullet, an ISO date, then a space, an em dash and a
+# space. `LOG_DATE_RE` is the diagnosis half — it recognises a line that got the
+# date right and the separator wrong, which is worth its own sentence because a
+# hyphen, an en dash and an em dash print almost alike and a message quoting one
+# against the other would leave the author staring at two identical lines.
+LOG_ENTRY_RE = re.compile(r"^- \d{4}-\d{2}-\d{2} — ")
+LOG_DATE_RE = re.compile(r"^- (\d{4}-\d{2}-\d{2})(\W*)")
 
 
 # --- Frontmatter -----------------------------------------------------------
@@ -181,6 +194,46 @@ def check_closed_date(status, closed, line_closed, line_status) -> list[str]:
     return []
 
 
+# --- Filename --------------------------------------------------------------
+
+
+def check_filename(path: Path, fm: dict) -> list[str]:
+    """The name on disk is what `application_filename()` makes of the fields.
+
+    Nothing stores that name, so this check is the only thing holding it to the
+    card's contents: change `role` without renaming and the file goes on
+    announcing the old role in every listing, in the quick switcher and in the
+    name sort that is now the whole of the grouping by company. The check is
+    skipped unless all three fields are filled and `applied_date` is a date —
+    whichever of them is wrong already reports itself, and a second violation
+    about the name would send the author to rename a file whose contents are
+    what needs the edit.
+    """
+    values = [fm.get(key, "") for key in ("company", "role", "applied_date")]
+    if not all(isinstance(v, str) and v for v in values):
+        return []
+    company, role, applied_date = values
+    if not DATE_RE.match(applied_date):
+        return []
+    expected = application_filename(company, role, applied_date)
+    # Compared in NFC, because the two sides come from different places and an
+    # accent can reach each in a different encoding: a role pasted out of a
+    # Spanish posting may carry `ó` as one code point or as two, and the
+    # filesystem hands back whichever form the name was created with. The two
+    # spellings are the same name to everyone reading it, and a violation
+    # printing two identical-looking strings is the least actionable message
+    # this validator could produce.
+    if unicodedata.normalize("NFC", path.name) == unicodedata.normalize(
+        "NFC", expected
+    ):
+        return []
+    return [
+        f"filename is '{path.name}', expected '{expected}' — the name is "
+        f"company{NAME_SEP}role{NAME_SEP}applied_date, taken from the "
+        f"frontmatter; rename the file, or fix the field it disagrees with"
+    ]
+
+
 # --- Stage entries ---------------------------------------------------------
 
 
@@ -214,7 +267,8 @@ def diagnose_stage_entry(entry: str) -> str:
 
 
 def check_stage_entries(entries: list, stages_line, block: bool) -> list[str]:
-    """Each entry parses, and entries run oldest first."""
+    """Each entry parses, names its interviewer in plain text, and entries run
+    oldest first."""
     out: list[str] = []
 
     def line_of(i):
@@ -228,6 +282,18 @@ def check_stage_entries(entries: list, stages_line, block: bool) -> list[str]:
         if not isinstance(entry, str):
             out.append(f"{where}stages: entry #{i + 1} is not a string")
             continue
+        # Separate from the parse, which accepts a bracketed interviewer like
+        # any other name: the entry is well formed and still wrong, and saying
+        # "does not parse" about it would send the author looking at the wrong
+        # field.
+        if "[[" in entry or "]]" in entry:
+            plain = entry.replace("[[", "").replace("]]", "")
+            out.append(
+                f"{where}stages: entry #{i + 1} '{entry}' — the interviewer is "
+                f"plain text; there is no note for a `[[link]]` to resolve to, "
+                f"so write the name bare: '{plain}'. The H2 repeating this "
+                f"entry changes with it."
+            )
         parsed = parse_stage_entry(entry)
         if parsed is None:
             out.append(
@@ -363,6 +429,54 @@ def check_question_tables(table_lines, off: int, ctx: str) -> list[str]:
 # --- Body ------------------------------------------------------------------
 
 
+def check_dated_log(h: Heading, off: int) -> list[str]:
+    """Every entry under `## Decision log` opens with its own date.
+
+    The log is the application's timeline, and the only place most of it lives:
+    the frontmatter dates the opening and the close, each stage dates itself,
+    and everything in between — a recruiter's reply, a take-home sent, a
+    follow-up that went unanswered — is written here or nowhere. An undated line
+    is an event that cannot be placed against the stages beside it, and the date
+    is not recoverable afterwards from anything else in the file.
+
+    Takes no context string, unlike its siblings: this shape belongs to the
+    decision log alone. `### Their feedback` and a company card's `## About` are
+    lists of statements rather than of events, and dating them would be asking
+    for a fact they do not have.
+
+    A line that is not a bullet at all is `check_bullet_list()`'s to report;
+    this check speaks only about lines that already are, so a line that is
+    neither a bullet nor dated stays one defect and one violation.
+    """
+    ctx = f"## {DECISION_LOG}"
+    out: list[str] = []
+    for i, line in enumerate(h.lines, start=1):
+        if not line.strip() or not is_bullet(line) or LOG_ENTRY_RE.match(line):
+            continue
+        n = h.line_no + i + off
+        dated = LOG_DATE_RE.match(line)
+        if dated is None:
+            out.append(
+                f"line {n}: `{ctx}`: every entry is one dated event and opens "
+                f"`- YYYY-MM-DD — `, found: {line.rstrip()!r}"
+            )
+            continue
+        # Named rather than only quoted, for the same reason the comparison
+        # exists at all: the wrong separator is usually a dash of the wrong
+        # width, and its name is the only part of the message that shows it.
+        sep = dated.group(2)
+        named = ", ".join(
+            unicodedata.name(ch, "?") for ch in sep if not ch.isspace()
+        )
+        found = f"{sep!r} ({named})" if named else repr(sep)
+        out.append(
+            f"line {n}: `{ctx}`: the date is followed by {found} — the "
+            f"separator is a space, an em dash (U+2014) and a space: "
+            f"`- {dated.group(1)} — `"
+        )
+    return out
+
+
 def check_stage_sections(headings, stage_h2s, entries, off: int) -> list[str]:
     """Pair `stages:` entries with their H2 sections by exact string, in order.
 
@@ -483,8 +597,16 @@ def validate(path: Path) -> list[str]:
         out += check_currency(fm.get("salary_currency", ""), line.get("salary_currency"))
 
         if "company" in raw:
-            out += check_wiki_link("company", raw["company"],
-                                   line.get("company"))
+            # Both halves read the company out of the raw line rather than out
+            # of `fm`. An unquoted `company: [[Acme]]` opens and closes with a
+            # bracket, so the frontmatter parser hands back the inline list
+            # `['[Acme]']`; asking the filesystem about that finds no card and
+            # the message would then tell an author with a perfectly good card
+            # to unlink from it.
+            out += check_company_ref(
+                raw["company"], line.get("company"),
+                card_exists=company_card_exists(path, unquote(raw["company"])),
+            )
         if "source" in raw:
             out += check_source(raw["source"], line.get("source"))
 
@@ -517,9 +639,15 @@ def validate(path: Path) -> list[str]:
                     block=raw["stages"] == "",
                 )
 
+    out += check_filename(path, fm)
     out += check_no_html_comments(body, off)
 
-    company = fm.get("company", "") or path.parent.name
+    # Read out of the raw line for the same reason the card lookup above does:
+    # an unquoted `company: [[Acme]]` parses as a list, and an expected H1 built
+    # from that reads `['[Acme]'] — Role`. The company field already reported
+    # itself one violation earlier; a second one quoting a Python repr sends the
+    # author to edit the heading, which is the half that was right.
+    company = unquote(raw["company"]) if "company" in raw else fm.get("company", "")
     expected_h1 = f"{company} — {fm.get('role', '')}"
 
     headings, preamble = parse_headings(body)
@@ -547,6 +675,7 @@ def validate(path: Path) -> list[str]:
                 f"there is exactly one, holding every dated event"
             )
         out += check_bullet_list(logs[0], off, f"## {DECISION_LOG}")
+        out += check_dated_log(logs[0], off)
 
     stage_h2s = [h for h in h2s if h.text != DECISION_LOG]
     out += check_stage_sections(headings, stage_h2s, stage_entries, off)

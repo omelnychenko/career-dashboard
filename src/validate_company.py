@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Company card validator — `Companies/<Company>/<Company>.md`.
+"""Company card validator — `Companies/<Company>.md`.
 
-The shape it checks is the same one Person uses, so the work lives in
+The shape it checks is the About-note shape, so the work lives in
 `validate_common.validate_note()`; a company card is that shape plus its own
 key set. Stdlib only.
 """

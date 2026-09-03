@@ -6,8 +6,14 @@ defect" holds by construction rather than by inspection. Each case declares the
 violation it expects; a case that fails for a different reason is a bug in the
 validator, not a pass.
 
-Each fixture lives in its own directory so the file stem stays constant — the
-H1-equals-stem rule would otherwise turn every filename into a second defect.
+Each case gets its own miniature vault — `<case>/Applications/` beside
+`<case>/Companies/` — because two application rules read the file's
+surroundings rather than its text: `company:` is a link exactly when the
+company card exists, and the filename is a function of the frontmatter. A
+shared directory would let one case's company card decide another case's
+verdict, so the harness derives each application's name from the fixture it is
+about to write and a mutation to `company`, `role` or `applied_date` renames
+the file with it instead of adding a second defect.
 
     python3 tests/test_validators.py
 
@@ -33,7 +39,7 @@ sys.path.insert(0, str(SRC))
 
 import validate_application  # noqa: E402
 import validate_company  # noqa: E402
-import validate_person  # noqa: E402
+from vault_schema import application_filename, split_frontmatter  # noqa: E402
 
 # --- Valid bases -----------------------------------------------------------
 
@@ -55,27 +61,12 @@ industry: Fintech
 - Re-application allowed after six months.
 """
 
-PERSON = """---
-type: person
-name: Jane Doe
-role: Engineering Manager
-current_company: "[[Acme]]"
-linkedin: https://www.linkedin.com/in/jane-doe/
-email:
-phone:
-telegram:
----
-
-# Jane Doe
-
-## About
-- Ran both rounds; asked for concrete examples rather than definitions.
-- Communication style: direct, cuts follow-ups short when the answer lands.
-"""
-
+# `company: Acme` bare, because no case directory holds a `Companies/Acme.md`
+# unless the case puts one there — the card is what makes the link form the
+# legal one, and the base has to be valid in the vault it is written into.
 APP_FM_H1 = """---
 type: application
-company: "[[Acme]]"
+company: Acme
 role: Frontend Engineer
 seniority: Middle
 stack: [Angular, TypeScript, RxJS]
@@ -83,8 +74,8 @@ source: https://acme.example.com/jobs/frontend-engineer
 applied_date: 2026-05-11
 status: rejected
 stages:
-  - 2026-05-14 | Intro call | Screening | passed | [[Jane Doe]]
-  - 2026-05-20 | Technical interview | Tech | failed | [[Jane Doe]]
+  - 2026-05-14 | Intro call | Screening | passed | Jane Doe
+  - 2026-05-20 | Technical interview | Tech | failed | Jane Doe
 salary_amount: 4000
 salary_period: month
 salary_currency: EUR
@@ -105,7 +96,7 @@ APP_LOG = """## Decision log
 
 """
 
-APP_STAGE1 = """## 2026-05-14 | Intro call | Screening | passed | [[Jane Doe]]
+APP_STAGE1 = """## 2026-05-14 | Intro call | Screening | passed | Jane Doe
 
 ### What was asked
 - How did you hear about us?
@@ -116,7 +107,7 @@ APP_STAGE1 = """## 2026-05-14 | Intro call | Screening | passed | [[Jane Doe]]
 
 """
 
-APP_STAGE2 = """## 2026-05-20 | Technical interview | Tech | failed | [[Jane Doe]]
+APP_STAGE2 = """## 2026-05-20 | Technical interview | Tech | failed | Jane Doe
 
 ### What was asked
 
@@ -140,11 +131,18 @@ APP_STAGE2 = """## 2026-05-20 | Technical interview | Tech | failed | [[Jane Doe
 
 APPLICATION = APP_FM_H1 + APP_LOG + APP_STAGE1 + APP_STAGE2
 
+# The name the base frontmatter computes to, and the fallback for the one
+# fixture whose frontmatter is deleted outright: there is nothing left to
+# derive from, and the missing block is the defect that case is about.
+BASE_APP_NAME = "Acme • Frontend Engineer • 2026-05-11.md"
+
+# (folder inside the case's vault, fixed filename or None to derive it,
+#  base text, validator)
 BASES = {
-    "company": ("Acme.md", COMPANY, validate_company.validate),
-    "person": ("Jane Doe.md", PERSON, validate_person.validate),
+    "company": ("Companies", "Acme.md", COMPANY, validate_company.validate),
     "application": (
-        "2026-05-11 — Frontend Engineer.md",
+        "Applications",
+        None,
         APPLICATION,
         validate_application.validate,
     ),
@@ -153,6 +151,8 @@ BASES = {
 # --- Cases -----------------------------------------------------------------
 # edits: (old, new) pairs applied once each to the base.
 # build: replaces the base wholesale, for cases that move whole sections.
+# fname: overrides the derived filename, for the case that is about the name.
+# files: extra case-vault files, written relative to the case directory.
 # count: total violations expected — an extra one means a rule misfired.
 
 CASES = [
@@ -199,18 +199,6 @@ CASES = [
          note="a comment inside a bullet-only section is also a non-bullet "
               "line; both messages name the same fix"),
 
-    # -- Person -------------------------------------------------------------
-    dict(name="person_bad_enum", base="person",
-         edits=[("type: person", "type: contact")],
-         expect="type: 'contact' is not 'person'", count=1),
-    dict(name="person_bare_wiki_link", base="person",
-         edits=[('current_company: "[[Acme]]"', "current_company: Acme")],
-         expect="a set current_company is a quoted wiki-link", count=1),
-    dict(name="person_misordered_keys", base="person",
-         edits=[('role: Engineering Manager\ncurrent_company: "[[Acme]]"',
-                 'current_company: "[[Acme]]"\nrole: Engineering Manager')],
-         expect="position 3 is 'current_company', expected 'role'", count=1),
-
     # -- Application: frontmatter -------------------------------------------
     dict(name="app_bad_enum_seniority", base="application",
          edits=[("seniority: Middle", "seniority: Mid–Senior")],
@@ -245,6 +233,9 @@ CASES = [
          edits=[("status: rejected", "status: active")],
          expect="closed_date: '2026-05-22' is set but status is 'active'",
          count=1),
+    # The name carries the date, so a malformed one would rename the fixture
+    # too. It cannot: the filename rule skips a non-ISO `applied_date`, which
+    # leaves the date format itself as the only thing this case reports.
     dict(name="app_applied_date_not_iso", base="application",
          edits=[("applied_date: 2026-05-11", "applied_date: 11-05-2026")],
          expect="applied_date: '11-05-2026' is not an ISO date YYYY-MM-DD",
@@ -279,27 +270,41 @@ CASES = [
                  "## 2026-05-14 | Intro call | Screening | Passed")],
          expect="result 'Passed' is not one of: scheduled, passed, failed",
          count=1),
-    dict(name="app_company_bare_text", base="application",
-         edits=[('company: "[[Acme]]"', "company: Acme")],
-         expect="a set company is a quoted wiki-link", count=1),
+
+    # -- Application: company reference and filename ------------------------
+    # Both directions of the same rule. The field is bare or linked depending
+    # on the vault around it, so each case sets up the vault it needs: no card
+    # beside the first, a card beside the second.
+    dict(name="app_company_link_without_card", base="application",
+         edits=[("company: Acme", 'company: "[[Acme]]"')],
+         expect='company: "[[Acme]]" — there is no Companies/Acme.md, so the '
+                "link resolves to nothing", count=1),
+    dict(name="app_company_bare_with_card", base="application", edits=[],
+         files={"Companies/Acme.md": COMPANY},
+         expect="company: Acme — Companies/Acme.md exists, so the field "
+                "links it", count=1),
+    dict(name="app_filename_mismatch", base="application", edits=[],
+         fname="Acme • Frontend Engineer • 2026-05-12.md",
+         expect="filename is 'Acme • Frontend Engineer • 2026-05-12.md', "
+                "expected 'Acme • Frontend Engineer • 2026-05-11.md'",
+         count=1),
 
     # -- Application: stages <-> sections ------------------------------------
     dict(name="app_h2_matches_no_entry", base="application",
          edits=[(APP_STAGE2, APP_STAGE2 + "\n"
-                 "## 2026-06-01 | Final call | Final | passed | [[Jane Doe]]\n"
+                 "## 2026-06-01 | Final call | Final | passed | Jane Doe\n"
                  "\n### What was asked\n- Team fit questions.\n"
                  "\n### Their feedback\n- Positive.\n")],
-         expect="H2 '2026-06-01 | Final call | Final | passed | [[Jane Doe]]' "
+         expect="H2 '2026-06-01 | Final call | Final | passed | Jane Doe' "
                 "matches no stages: entry", count=1),
     dict(name="app_entry_without_h2", base="application",
          edits=[("  - 2026-05-20 | Technical interview | Tech | failed | "
-                 "[[Jane Doe]]\n",
+                 "Jane Doe\n",
                  "  - 2026-05-20 | Technical interview | Tech | failed | "
-                 "[[Jane Doe]]\n"
-                 "  - 2026-06-01 | Final call | Final | passed | "
-                 "[[Jane Doe]]\n")],
+                 "Jane Doe\n"
+                 "  - 2026-06-01 | Final call | Final | passed | Jane Doe\n")],
          expect="stages: entry '2026-06-01 | Final call | Final | passed | "
-                "[[Jane Doe]]' has no section", count=1),
+                "Jane Doe' has no section", count=1),
     dict(name="app_stage_entries_out_of_order", base="application",
          edits=[("  - 2026-05-14 | Intro call", "  - 2026-05-28 | Intro call"),
                 ("## 2026-05-14 | Intro call", "## 2026-05-28 | Intro call")],
@@ -308,21 +313,33 @@ CASES = [
     dict(name="app_sections_out_of_order", base="application",
          build=lambda: APP_FM_H1 + APP_LOG + APP_STAGE2 + "\n" + APP_STAGE1,
          expect="stage section #1 is '2026-05-20 | Technical interview | Tech "
-                "| failed | [[Jane Doe]]' but stages: entry #1 is "
-                "'2026-05-14 | Intro call | Screening | passed | "
-                "[[Jane Doe]]'", count=1),
+                "| failed | Jane Doe' but stages: entry #1 is "
+                "'2026-05-14 | Intro call | Screening | passed | Jane Doe'",
+         count=1),
     dict(name="app_decision_log_not_first", base="application",
          build=lambda: APP_FM_H1 + APP_STAGE1 + APP_STAGE2 + "\n" + APP_LOG,
          expect="first H2 is '2026-05-14 | Intro call | Screening | passed | "
-                "[[Jane Doe]]' — `## Decision log` is always the first H2",
+                "Jane Doe' — `## Decision log` is always the first H2",
          count=1),
     dict(name="app_bad_stage_result", base="application",
-         edits=[("| Tech | failed | [[Jane Doe]]\n"
-                 "salary_amount", "| Tech | rejected | [[Jane Doe]]\n"
+         edits=[("| Tech | failed | Jane Doe\n"
+                 "salary_amount", "| Tech | rejected | Jane Doe\n"
                  "salary_amount"),
                 ("## 2026-05-20 | Technical interview | Tech | failed",
                  "## 2026-05-20 | Technical interview | Tech | rejected")],
          expect="result 'rejected' is not one of: scheduled, passed, failed",
+         count=1),
+    # Entry and heading again, so the pairing survives and the brackets are
+    # the whole of the defect: the entry still parses, it is only illegal.
+    dict(name="app_interviewer_wiki_link", base="application",
+         edits=[("  - 2026-05-14 | Intro call | Screening | passed | Jane Doe",
+                 "  - 2026-05-14 | Intro call | Screening | passed | "
+                 "[[Jane Doe]]"),
+                ("## 2026-05-14 | Intro call | Screening | passed | Jane Doe",
+                 "## 2026-05-14 | Intro call | Screening | passed | "
+                 "[[Jane Doe]]")],
+         expect="stages: entry #1 '2026-05-14 | Intro call | Screening | "
+                "passed | [[Jane Doe]]' — the interviewer is plain text",
          count=1),
 
     # -- Application: body shapes -------------------------------------------
@@ -357,6 +374,24 @@ CASES = [
          expect="`### Their feedback`: expected an unordered-list line "
                 "starting with '- ', found: 'Moved to the technical round "
                 "the same week.'", count=1),
+    # The complement of the case above. These two lines are bullets, so the
+    # list check passes them and the dating rule is the only thing standing
+    # between an undated event and the vault. The second is the shape a log
+    # written with `YYYY-MM-DD:` arrives in, and it is why the message names
+    # the character it found rather than only quoting it: a colon is obvious,
+    # the hyphen and the en dash it stands in for are not.
+    dict(name="app_log_entry_undated", base="application",
+         edits=[("- 2026-05-22 — Rejected after the technical round.",
+                 "- Rejected after the technical round.")],
+         expect="`## Decision log`: every entry is one dated event and opens "
+                "`- YYYY-MM-DD — `, found: "
+                "'- Rejected after the technical round.'", count=1),
+    dict(name="app_log_entry_colon_separator", base="application",
+         edits=[("- 2026-05-11 — Applied through their careers page.",
+                 "- 2026-05-11: Applied through their careers page.")],
+         expect="`## Decision log`: the date is followed by ': ' (COLON) — the "
+                "separator is a space, an em dash (U+2014) and a space: "
+                "`- 2026-05-11 — `", count=1),
     dict(name="app_h4", base="application",
          edits=[("- Retro: rehearse the OnPush explanation with a concrete "
                  "example.\n",
@@ -373,7 +408,7 @@ CASES = [
          edits=[("### Their feedback\n- Moved to the technical round the "
                  "same week.\n\n", "")],
          expect="stage section '2026-05-14 | Intro call | Screening | passed "
-                "| [[Jane Doe]]' has H3s ['What was asked'] — expected "
+                "| Jane Doe' has H3s ['What was asked'] — expected "
                 "exactly 'What was asked', 'Their feedback', in that order",
          count=1),
     dict(name="app_html_comment", base="application",
@@ -397,6 +432,27 @@ def write(path: Path, text: str) -> None:
     path.write_text(text, encoding="utf-8")
 
 
+def fixture_name(fixed: str | None, text: str) -> str:
+    """The name a fixture is written under.
+
+    A company card is named for its H1 and nothing in the frontmatter moves it.
+    An application's name is a function of its frontmatter — the validator
+    recomputes it and compares — so it is derived here from the very text about
+    to be written, which is what keeps a case that edits `company`, `role` or
+    `applied_date` down to the one defect it is about. A fixture whose
+    frontmatter has been deleted has nothing to derive from and falls back to
+    the base name.
+    """
+    if fixed is not None:
+        return fixed
+    fm, _ = split_frontmatter(text)
+    if not fm:
+        return BASE_APP_NAME
+    return application_filename(
+        fm.get("company", ""), fm.get("role", ""), fm.get("applied_date", "")
+    )
+
+
 def main() -> int:
     failures = 0
     checked = 0
@@ -405,8 +461,12 @@ def main() -> int:
     print("VALID FIXTURES  (expect zero violations)")
     print("=" * 78)
     valid_paths = []
-    for entity, (fname, text, validator) in BASES.items():
-        path = FIXTURES / "valid" / fname
+    for entity, (subdir, fixed, text, validator) in BASES.items():
+        # A vault per entity, not one shared by both: an application sitting
+        # beside the company card would owe `company:` the link form, and the
+        # base is written bare.
+        fname = fixture_name(fixed, text)
+        path = FIXTURES / "valid" / entity / subdir / fname
         write(path, text)
         valid_paths.append(path)
         violations = validator(path)
@@ -423,9 +483,10 @@ def main() -> int:
     print("=" * 78)
     print("BROKEN FIXTURES  (expect the named violation, and only it)")
     print("=" * 78)
+    written: dict[str, Path] = {}
     for case in CASES:
         name = case["name"]
-        fname, base, validator = BASES[case["base"]]
+        subdir, fixed, base, validator = BASES[case["base"]]
         if "build" in case:
             text = case["build"]()
         else:
@@ -439,8 +500,14 @@ def main() -> int:
                 text = text.replace(old, new, 1)
             if text is None:
                 continue
-        path = FIXTURES / name / fname
+        case_dir = FIXTURES / name
+        path = case_dir / subdir / fixture_name(case.get("fname", fixed), text)
         write(path, text)
+        # Whatever else the case needs standing in its vault — today only the
+        # company card that flips `company:` to the link form.
+        for rel, content in case.get("files", {}).items():
+            write(case_dir / rel, content)
+        written[name] = path
 
         violations = validator(path)
         checked += 1
@@ -484,14 +551,15 @@ def main() -> int:
         [sys.executable, str(cli), *[str(p) for p in valid_paths]],
         capture_output=True, text=True,
     )
-    print(f"$ validate.py <3 valid fixtures>   -> exit {clean.returncode}")
+    print(f"$ validate.py <{len(valid_paths)} valid fixtures>   -> exit "
+          f"{clean.returncode}")
     print("  " + clean.stdout.strip().replace("\n", "\n  "))
     checked += 1
     if clean.returncode != 0:
         failures += 1
         print("  FAIL: a clean run must exit 0")
 
-    broken = FIXTURES / "app_score_six" / BASES["application"][0]
+    broken = written["app_score_six"]
     dirty = subprocess.run(
         [sys.executable, str(cli), str(valid_paths[0]), str(broken)],
         capture_output=True, text=True,
