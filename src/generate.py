@@ -121,10 +121,10 @@ def normalize_salary(amount, period, currency) -> tuple:
 
 
 def normalize_fit(score) -> object:
-    """The 1-10 fit score as a number, "" when unset.
+    """The 1.0–5.0 fit score as a number, "" when unset.
 
     Kept numeric so the dashboard can compare and format it; an integral score
-    stays an int so the modal reads "8" and not "8.0".
+    stays an int so the modal reads "4" and not "4.0".
     """
     if score == "" or score is None:
         return ""

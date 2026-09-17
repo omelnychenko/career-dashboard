@@ -830,7 +830,7 @@ function openDetail(a) {
       <dt>Stack</dt><dd>${esc((a.stack_all||[]).join(", ")) || "—"}</dd>
       <dt>Salary asked</dt><dd>${incognito ? "—" : (a.salary_primary ? esc(a.salary_primary) + (a.salary_original ? ` · ${esc(a.salary_original)}` : "") : (a.salary_original ? esc(a.salary_original) : "—"))}</dd>
       ${!incognito && a.salary_note ? `<dt>Salary note</dt><dd>${esc(a.salary_note)}</dd>` : ""}
-      ${a.fit_score ? `<dt>Fit</dt><dd>${incognito ? "—" : `${esc(a.fit_score)}/10${a.fit_note ? ` · ${esc(a.fit_note)}` : ""}`}</dd>` : ""}
+      ${a.fit_score ? `<dt>Fit</dt><dd>${incognito ? "—" : `${esc(a.fit_score)}/5${a.fit_note ? ` · ${esc(a.fit_note)}` : ""}`}</dd>` : ""}
       <dt>Source</dt><dd>${a.source ? (/^https?:\/\//.test(a.source) ? `<a href="${esc(a.source)}" target="_blank" rel="noopener">${esc(a.source)}</a>` : esc(a.source)) : "—"}</dd>
       <dt>Applied</dt><dd>${esc(a.applied_date) || "—"}</dd>
       <dt>Last contact</dt><dd>${a.last_contact ? `${esc(a.last_contact)}${a.days_since_contact != null ? ` · ${a.days_since_contact}д` : ""}` : "—"}</dd>

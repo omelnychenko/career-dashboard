@@ -51,7 +51,9 @@ CURRENCY_RE = re.compile(r"^[A-Z]{3}$")
 # Question scores in a stage table, on the `Knowledge base/_Skills.md` scale.
 SCORE_MIN, SCORE_MAX = 1, 5
 
-FIT_MIN, FIT_MAX = 1, 10
+# Fit score on an application card: one decimal place at most. The bounds are
+# floats so the range a violation prints is written the way the score is.
+FIT_MIN, FIT_MAX = 1.0, 5.0
 
 # Frontmatter keys, in the order the templates declare them. Order is part of
 # the schema: a file that reads differently top to bottom is harder to scan

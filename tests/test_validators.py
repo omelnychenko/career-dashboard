@@ -82,7 +82,7 @@ salary_currency: EUR
 salary_note: Published range 3500-4500
 location: Barcelona
 closed_date: 2026-05-22
-fit_score: 7.5
+fit_score: 3.5
 fit_note: Strong Angular overlap, thin on Node
 ---
 
@@ -240,12 +240,35 @@ CASES = [
          edits=[("applied_date: 2026-05-11", "applied_date: 11-05-2026")],
          expect="applied_date: '11-05-2026' is not an ISO date YYYY-MM-DD",
          count=1),
-    dict(name="app_fit_score_out_of_range", base="application",
-         edits=[("fit_score: 7.5", "fit_score: 12")],
-         expect="fit_score: 12 is outside 1–10", count=1),
+    # The scale is 1.0–5.0 inclusive with one decimal at most. An integer is
+    # the same number with no decimal written, so both spellings pass.
+    dict(name="app_fit_score_integer", base="application",
+         edits=[("fit_score: 3.5", "fit_score: 3")],
+         expect=None, count=0),
+    dict(name="app_fit_score_integral_decimal", base="application",
+         edits=[("fit_score: 3.5", "fit_score: 3.0")],
+         expect=None, count=0),
+    dict(name="app_fit_score_one_decimal", base="application",
+         edits=[("fit_score: 3.5", "fit_score: 4.1")],
+         expect=None, count=0),
+    dict(name="app_fit_score_lower_bound", base="application",
+         edits=[("fit_score: 3.5", "fit_score: 1.0")],
+         expect=None, count=0),
+    dict(name="app_fit_score_upper_bound", base="application",
+         edits=[("fit_score: 3.5", "fit_score: 5.0")],
+         expect=None, count=0),
+    dict(name="app_fit_score_below_range", base="application",
+         edits=[("fit_score: 3.5", "fit_score: 0.9")],
+         expect="fit_score: 0.9 is outside 1.0–5.0", count=1),
+    dict(name="app_fit_score_above_range", base="application",
+         edits=[("fit_score: 3.5", "fit_score: 5.1")],
+         expect="fit_score: 5.1 is outside 1.0–5.0", count=1),
     dict(name="app_fit_score_two_decimals", base="application",
-         edits=[("fit_score: 7.5", "fit_score: 7.55")],
-         expect="fit_score: '7.55' has 2 decimal places", count=1),
+         edits=[("fit_score: 3.5", "fit_score: 4.15")],
+         expect="fit_score: '4.15' has 2 decimal places", count=1),
+    dict(name="app_fit_score_not_a_number", base="application",
+         edits=[("fit_score: 3.5", "fit_score: abc")],
+         expect="fit_score: 'abc' is not a bare number", count=1),
     dict(name="app_stack_not_a_list", base="application",
          edits=[("stack: [Angular, TypeScript, RxJS]", "stack: ")],
          expect="stack: is not a list", count=1),
